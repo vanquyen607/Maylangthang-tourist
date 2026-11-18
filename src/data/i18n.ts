@@ -279,6 +279,7 @@ export const UI_COPY = {
       'Miền Bắc': 'Miền Bắc',
       'Miền Trung': 'Miền Trung',
       'Miền Nam': 'Miền Nam',
+      'Quốc tế': 'Quốc tế',
     } as Record<RegionZone, string>,
     categories: {
       'Tất cả': 'Tất cả',
@@ -291,6 +292,12 @@ export const UI_COPY = {
       'Tất cả': 'Tất cả',
       '2 ngày 1 đêm': '2 ngày 1 đêm',
       '3 ngày 2 đêm': '3 ngày 2 đêm',
+      '4 ngày 3 đêm': '4 ngày 3 đêm',
+      '5 ngày 4 đêm': '5 ngày 4 đêm',
+      '6 ngày 5 đêm': '6 ngày 5 đêm',
+      '7 ngày 6 đêm': '7 ngày 6 đêm',
+      '9 ngày 8 đêm': '9 ngày 8 đêm',
+      '10 ngày 9 đêm': '10 ngày 9 đêm',
     } as Record<DurationFilter, string>,
     journalCategories: {
       'Tất cả': 'Tất cả',
@@ -570,6 +577,7 @@ export const UI_COPY = {
       'Miền Bắc': 'Northern Vietnam',
       'Miền Trung': 'Central & Highlands',
       'Miền Nam': 'Southern Vietnam',
+      'Quốc tế': 'International',
     } as Record<RegionZone, string>,
     categories: {
       'Tất cả': 'All',
@@ -582,6 +590,12 @@ export const UI_COPY = {
       'Tất cả': 'All',
       '2 ngày 1 đêm': '2 Days 1 Night',
       '3 ngày 2 đêm': '3 Days 2 Nights',
+      '4 ngày 3 đêm': '4 Days 3 Nights',
+      '5 ngày 4 đêm': '5 Days 4 Nights',
+      '6 ngày 5 đêm': '6 Days 5 Nights',
+      '7 ngày 6 đêm': '7 Days 6 Nights',
+      '9 ngày 8 đêm': '9 Days 8 Nights',
+      '10 ngày 9 đêm': '10 Days 9 Nights',
     } as Record<DurationFilter, string>,
     journalCategories: {
       'Tất cả': 'All Stories',
@@ -721,6 +735,78 @@ export const EN_CONTENT = {
       region: 'Ba Ria – Vung Tau · Quiet Island',
       tagline: 'Pristine Dam Trau bay, coastal jungle & sea turtle sanctuary',
       bestSeason: 'Mar – Sep',
+    },
+    'siem-reap': {
+      name: 'Siem Reap',
+      region: 'Cambodia · Ancient Angkor',
+      tagline: 'Sunrise over Angkor Wat and moss-covered temples hidden in jungle',
+      bestSeason: 'Nov – Feb',
+    },
+    'chiang-mai': {
+      name: 'Chiang Mai',
+      region: 'Thailand · The North',
+      tagline: 'A golden temple above the clouds and the slow rhythm of the old town',
+      bestSeason: 'Nov – Feb',
+    },
+    'singapore': {
+      name: 'Singapore',
+      region: 'Singapore · Southeast Asia',
+      tagline: 'A futuristic garden city, heritage quarters and hawker food heaven',
+      bestSeason: 'Feb – Apr & Jul – Sep',
+    },
+    'bali': {
+      name: 'Bali',
+      region: 'Indonesia · Island of the Gods',
+      tagline: 'Tegalalang rice terraces, ancient temples and slow Ubud mornings',
+      bestSeason: 'Apr – Oct',
+    },
+    'dai-loan': {
+      name: 'Taiwan',
+      region: 'Taiwan · East Asia',
+      tagline: 'Lantern-lit Jiufen, high-mountain tea and night markets that never sleep',
+      bestSeason: 'Mar – May & Oct – Nov',
+    },
+    'le-giang': {
+      name: 'Lijiang',
+      region: 'China · Yunnan',
+      tagline: 'A thousand-year-old town beneath the Jade Dragon Snow Mountain',
+      bestSeason: 'Apr – Jun & Sep – Oct',
+    },
+    'seoul': {
+      name: 'Seoul',
+      region: 'South Korea · Northeast Asia',
+      tagline: 'Gyeongbokgung Palace, Bukchon hanok lanes and autumn foliage days',
+      bestSeason: 'Apr – May & Oct – Nov',
+    },
+    'kyoto': {
+      name: 'Kyoto',
+      region: 'Japan · Kansai',
+      tagline: 'Ten thousand vermilion torii gates, bamboo groves and quiet tea houses',
+      bestSeason: 'Mar – Apr & Nov',
+    },
+    'pokhara': {
+      name: 'Pokhara',
+      region: 'Nepal · Himalaya',
+      tagline: 'Still Phewa Lake beneath the white wall of the Annapurnas',
+      bestSeason: 'Oct – Nov & Mar – Apr',
+    },
+    'ulaanbaatar': {
+      name: 'Ulaanbaatar',
+      region: 'Mongolia · Central Asian Steppe',
+      tagline: 'Ger camps, horse rides and endless star-filled steppe skies',
+      bestSeason: 'Jun – Aug',
+    },
+    'paro': {
+      name: 'Paro',
+      region: 'Bhutan · Himalaya',
+      tagline: 'The cliff-clinging Tiger’s Nest and a nation that measures happiness',
+      bestSeason: 'Mar – May & Oct – Nov',
+    },
+    'paris': {
+      name: 'Paris',
+      region: 'France · Europe',
+      tagline: 'The Eiffel Tower, tree-lined boulevards and century-old cafés',
+      bestSeason: 'May – Jun & Sep – Oct',
     },
   } as Record<string, { name: string; region: string; tagline: string; bestSeason: string }>,
   packages: {
@@ -945,6 +1031,150 @@ export const EN_CONTENT = {
         'Explore herbal medicine streets, heritage guildhalls & night flower market',
         'Sample hand-pulled noodles, alley skillet banh mi & charcoal broken rice',
         'Open-deck twilight river cruise with craft refreshments',
+      ],
+    },
+    'tour-angkor-binh-minh': {
+      title: 'Angkor Wat Sunrise & the Jungle Temples of Ta Prohm',
+      description:
+        'Four unhurried days among the Angkor temples: sunrise over the lotus pond at Angkor Wat, wandering root-strangled Ta Prohm, and hearing Khmer guides tell the story of their own ancient capital.',
+      departureInfo: 'Departs every Tuesday & Friday from Ho Chi Minh City',
+      groupSize: 'Max 10 guests',
+      highlights: [
+        'Enter at 5:00 AM and skip the midday crowds entirely',
+        'Local guides deeply versed in Khmer epics and temple architecture',
+        'A slow afternoon boat ride on Tonlé Sap to Kampong Phluk floating village',
+      ],
+    },
+    'tour-chiang-mai-cham': {
+      title: 'Slow Chiang Mai: Old Temples, Craft Villages & Doi Inthanon',
+      description:
+        'No checklist-chasing: this journey gives Chiang Mai the time it deserves — dawn alms at forest temples, a Khao Soi cooking class with a local family, and one full day on Thailand’s highest peak, Doi Inthanon.',
+      departureInfo: 'Departs every Wednesday & Sunday',
+      groupSize: 'Max 10 guests',
+      highlights: [
+        'Cooking class in the garden home of a Lanna family',
+        'A quiet morning conversation with monks at forest temple Wat Pha Lat',
+        'Wachirathan Waterfall and royal gardens on Doi Inthanon',
+      ],
+    },
+    'tour-singapore-malaysia': {
+      title: 'Singapore Garden City, Old Malacca & Genting Highlands',
+      description:
+        'Five days across two countries at an easy pace: vertical gardens and heritage quarters in Singapore, the mellow riverside of Malacca, then a cable car through clouds to the cool Genting Highlands.',
+      departureInfo: 'Departs every Thursday from Ho Chi Minh City & Hanoi',
+      groupSize: 'Max 12 guests',
+      highlights: [
+        'A free evening to graze through Maxwell hawker centre like a local',
+        'River cruise past Malacca’s lantern-lit old town',
+        'Genting Skyway cable car above the clouds at 1,800m',
+      ],
+    },
+    'tour-bali-ubud': {
+      title: 'Slow Bali: Ubud Terraces, Sacred Temples & a Day to Recharge',
+      description:
+        'Base yourself in Ubud and explore just one area per day: Tegalalang rice terraces, the holy springs of Tirta Empul, sunset over Uluwatu cliffs, and one full day reserved for yoga, massage and Balinese coffee.',
+      departureInfo: 'Departs every Tuesday & Saturday',
+      groupSize: 'Max 10 guests',
+      highlights: [
+        'Purification ritual under the sacred fountains of Tirta Empul',
+        'Sunrise yoga overlooking the Ayung river valley',
+        'Kecak fire dance on the Uluwatu cliff at sunset',
+      ],
+    },
+    'tour-dai-loan-am-thuc': {
+      title: 'Taiwan by Taste: Taipei – Jiufen – Sun Moon Lake',
+      description:
+        'A journey travelled by palate: steaming xiaolongbao in Taipei, high-mountain oolong, sky lanterns in Shifen, and sleepless night markets — eating the way Taiwan enjoys life.',
+      departureInfo: 'Departs every Wednesday from Ho Chi Minh City & Hanoi',
+      groupSize: 'Max 10 guests',
+      highlights: [
+        'Release a wish lantern in the old street of Shifen',
+        'High-mountain oolong tasting with a local tea master',
+        'Two night-market evenings: Shilin and Fengjia, eating like locals',
+      ],
+    },
+    'tour-le-giang-shangrila': {
+      title: 'Lijiang – Shangri-La: Snow Mountain Old Towns & Tiger Leaping Gorge',
+      description:
+        'Six days on the Yunnan plateau: get happily lost in Lijiang’s stone lanes, stand before Jade Dragon Snow Mountain, and reach Shangri-La — land of Songzanlin Monastery and gentle Tibetan hosts.',
+      departureInfo: 'Departs every Thursday, direct flight to Kunming',
+      groupSize: 'Max 10 guests',
+      highlights: [
+        'Open-air performance beneath Jade Dragon Snow Mountain',
+        'Walk the finest stretch of Tiger Leaping Gorge with local porters',
+        'A night in Shangri-La old town, sharing butter tea with a Tibetan family',
+      ],
+    },
+    'tour-han-quoc-la-do': {
+      title: 'Korea in Autumn Colours: Seoul – Nami Island – Jeju',
+      description:
+        'Korea at its most beautiful: wear hanbok through Gyeongbokgung, cycle under Nami’s ginkgo avenues, then slow down for two days on Jeju — island of wind, stone and seaside cafés.',
+      departureInfo: 'Departs in foliage season Oct – Nov & cherry blossom season Apr',
+      groupSize: 'Max 12 guests',
+      highlights: [
+        'Free palace entry in hanbok, like honoured guests of old',
+        'A day on Jeju: Cheonjiyeon Falls and the Osulloc tea fields',
+        'Kimchi-making class in Seoul — take your own jar home',
+      ],
+    },
+    'tour-nhat-ban-kyoto': {
+      title: 'Japan: Tokyo – Slow Kyoto – Osaka',
+      description:
+        'Three cities, three tempos: just enough of buzzing Tokyo, two full days in Kyoto for the Arashiyama bamboo grove, Fushimi Inari’s thousand gates and a private tea ceremony, closing with an Osaka food night.',
+      departureInfo: 'Departs in cherry blossom & autumn seasons, limited seats',
+      groupSize: 'Max 10 guests',
+      highlights: [
+        'Two full nights in Kyoto — few tours dare go this slow',
+        'Tea ceremony with a tea master in a century-old Gion machiya',
+        'Shinkansen ride with Mt. Fuji views between Tokyo and Kyoto',
+      ],
+    },
+    'tour-nepal-annapurna': {
+      title: 'Nepal: Kathmandu – Pokhara & a Gentle Annapurna Trek',
+      description:
+        'Nine days toward the Himalaya, the slow traveller’s way: old Kathmandu, the mirror-still Phewa Lake, and four gentle trekking days through Gurung villages, ending each afternoon with ginger tea and the Annapurnas turning gold.',
+      departureInfo: 'Departs Oct – Nov & Mar – Apr, small groups only',
+      groupSize: 'Max 8 guests',
+      highlights: [
+        'Beginner-friendly Ghandruk – Landruk trek, porters carry main luggage',
+        'Sunrise from Poon Hill before the Annapurna & Dhaulagiri ranges',
+        'Final-night dal bhat dinner with your teahouse host family in Ghandruk',
+      ],
+    },
+    'tour-mong-co-thao-nguyen': {
+      title: 'Mongolia: Ger Nights & Endless Steppe Days',
+      description:
+        'Almost a week beyond phone signal: stay in a ger with a nomad family, learn to milk a mare, ride across the Orkhon valley and watch the Milky Way in nights of absolute steppe silence.',
+      departureInfo: 'Departs Jun – Aug, green steppe season',
+      groupSize: 'Max 8 guests',
+      highlights: [
+        'Two nights in your own ger homestay with a nomad family',
+        'Horseback ride to Orkhon Falls with local herders',
+        'Ancient capital Karakorum and the 16th-century Erdene Zuu Monastery',
+      ],
+    },
+    'tour-bhutan-hanh-phuc': {
+      title: 'Bhutan: The Happiness Kingdom & Tiger’s Nest Monastery',
+      description:
+        'To the country that measures wealth in happiness: climb to the cliff-clinging Tiger’s Nest, spin prayer wheels in Thimphu, and live a few days at Bhutan’s pace — slow, still and kind.',
+      departureInfo: 'Departs Mar – May & Oct – Nov, max 8 guests',
+      groupSize: 'Max 8 guests',
+      highlights: [
+        'Summit Tiger’s Nest at 3,120m with a Bhutanese guide',
+        'Meditation session and conversation with monks at Punakha Dzong',
+        'Dress in gho/kira and try archery with local hosts',
+      ],
+    },
+    'tour-chau-au-co-dien': {
+      title: 'Classic Europe: France – Switzerland – Italy',
+      description:
+        'Ten days on the classic European route, without the rush: Paris of century-old cafés, the Alps and calm Lake Lucerne, then Venice, Florence and Rome to close the journey in art and Italian sun.',
+      departureInfo: 'Departs May – Jun & Sep – Oct',
+      groupSize: 'Max 12 guests',
+      highlights: [
+        'Two nights in Paris — slow enough for a Montmartre morning',
+        'Scenic rail across the Alps from Lucerne to Milan',
+        'A late-afternoon gondola ride when Venice empties of day crowds',
       ],
     },
   } as Record<
