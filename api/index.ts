@@ -163,9 +163,17 @@ function applyFilters(tours: CatalogTourSummary[], f: SearchFilters): CatalogTou
   });
 }
 
+const SCORE_STOPWORDS = new Set([
+  'minh', 'muon', 'tour', 'nay', 'nao', 'khong', 'cho', 'ban', 'giup', 'xem',
+  'hoi', 'cac', 'nhung', 'mot', 'duoc', 'theo', 'voi', 'cua', 'la', 'di',
+  've', 'den', 'tu', 'co', 'gi', 'dau', 'sao', 'can', 'xin', 'nhe', 'nha',
+  'dat', 'book', 'this', 'that', 'want', 'please', 'show', 'find', 'looking',
+  'look', 'trip', 'trips', 'travel', 'journey', 'journeys',
+]);
+
 function scoreTours(tours: CatalogTourSummary[], text: string): CatalogTourSummary[] {
   const t = norm(text);
-  const words = t.split(' ').filter((w) => w.length >= 4);
+  const words = t.split(' ').filter((w) => w.length >= 4 && !SCORE_STOPWORDS.has(w));
   const scored = tours.map((tour) => {
     const hay = tourHaystack(tour);
     let score = 0;
@@ -179,6 +187,21 @@ function scoreTours(tours: CatalogTourSummary[], text: string): CatalogTourSumma
     .filter((s) => s.score > 0)
     .sort((a, b) => b.score - a.score)
     .map((s) => s.tour);
+}
+
+/** Strong, unambiguous tour reference: full title or destination named. */
+function strongTourMatch(
+  tours: CatalogTourSummary[],
+  text: string
+): CatalogTourSummary | null {
+  const t = norm(text);
+  for (const tour of tours) {
+    if (tour.title && t.includes(norm(tour.title))) return tour;
+  }
+  for (const tour of tours) {
+    if (tour.destination && t.includes(norm(tour.destination))) return tour;
+  }
+  return null;
 }
 
 function matchDestination(
@@ -225,7 +248,7 @@ function cleanName(raw: string): string | null {
   let words = raw
     .replace(/[^\p{L}\s'-]/gu, ' ')
     .split(/\s+/)
-    .filter(Boolean);
+    .filter((w) => /\p{L}/u.test(w));
   while (words.length > 0 && NAME_FILLERS.has(norm(words[0]))) words = words.slice(1);
   words = words.slice(0, 4);
   if (words.length === 0) return null;
@@ -246,8 +269,12 @@ function extractName(userTexts: string[], lastModelText: string): string | null 
     // "Nguyễn Văn An, 0912345678" — a bare name sent together with the phone.
     const withoutPhone = userTexts[i].replace(/(?:\+84|0)(?:[\s.\-]?\d){8,12}/g, ' ');
     if (withoutPhone !== userTexts[i]) {
-      const words = withoutPhone.trim().split(/\s+/).filter(Boolean);
-      if (words.length >= 2 && words.length <= 4 && !/\d/.test(withoutPhone)) {
+      const words = withoutPhone
+        .replace(/[^\p{L}\s]/gu, ' ')
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean);
+      if (words.length >= 2 && words.length <= 5 && !/\d/.test(withoutPhone)) {
         const n = cleanName(withoutPhone);
         if (n) return n;
       }
@@ -261,8 +288,12 @@ function extractName(userTexts: string[], lastModelText: string): string | null 
     ' '
   );
   if (askedName && last.trim()) {
-    const words = last.trim().split(/\s+/).filter(Boolean);
-    if (words.length >= 2 && words.length <= 4 && !/\d/.test(last)) {
+    const words = last
+      .replace(/[^\p{L}\s]/gu, ' ')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+    if (words.length >= 2 && words.length <= 5 && !/\d/.test(last)) {
       return cleanName(last);
     }
   }
@@ -399,29 +430,33 @@ function handleChat(history: ChatHistoryItem[], lang: Lang, catalog: CatalogPayl
   // ---------- booking flow ----------
   const phone = extractPhone(userTexts);
   const name = extractName(userTexts, lastModel);
-  const askedBookingInfo = /(giu cho|ho ten|so dien thoai|hold a spot|full name|phone number)/.test(norm(lastModel));
+  const lastModelNorm = norm(lastModel);
+  // Only a reply that asked for BOTH name and phone counts as a booking
+  // prompt — capability/greeting texts also mention "giữ chỗ" and must not
+  // flip the next search question into booking mode.
+  const askedBookingInfo =
+    /(ho ten|full name)/.test(lastModelNorm) && /(so dien thoai|phone number)/.test(lastModelNorm);
   const wantsCustom = /(thiet ke rieng|lich trinh rieng|tour rieng theo|tailored|custom)/.test(t) ||
     /(thiet ke rieng|lich trinh rieng|tailored|custom)/.test(allUserNorm);
-  const bookingWords = /(dat tour|dat cho|giu cho|muon dat|chot tour|dang ky|book|reserve|dat ngay)/.test(t);
+  const bookingWords = /(dat tour|dat cho|giu cho|muon dat|chot tour|dang ky|book|reserve|dat ngay|dat nhe|xac nhan)/.test(t);
   const gaveInfo = Boolean(phone || name) && (askedBookingInfo || bookingWords);
-  const inBooking = bookingWords || askedBookingInfo || gaveInfo;
+  const inBooking = bookingWords || gaveInfo;
 
-  // Which tour is the booking about?
+  // Which tour is the booking about? Explicit title/destination in the
+  // current message wins; otherwise the tour(s) most recently shown.
   let bookingTour: CatalogTourSummary | null = null;
-  if (!wantsCustom) {
-    const scoredNow = scoreTours(tours, lastUser);
-    const ordinal = t.match(/(?:tour|goi|so|chuyen)?\s*([123])\b/) || t.match(/dau tien/) ;
-    if (bookingWords && scoredNow.length > 0 && /(dat|book|giu|chot)/.test(t)) {
-      bookingTour = scoredNow[0];
-    } else if (shownBefore.length > 0 && (bookingWords || askedBookingInfo || gaveInfo)) {
+  if (!wantsCustom && inBooking) {
+    const explicit = strongTourMatch(tours, lastUser);
+    if (explicit) {
+      bookingTour = explicit;
+    } else if (shownBefore.length > 0) {
       let idx = 0;
       if (/thu hai|so 2|\b2\b/.test(t)) idx = 1;
       if (/thu ba|so 3|\b3\b/.test(t)) idx = 2;
       bookingTour = shownBefore[Math.min(idx, shownBefore.length - 1)];
-    } else if (askedBookingInfo || gaveInfo) {
-      bookingTour = scoreTours(tours, userTexts.join(' '))[0] || shownBefore[0] || null;
+    } else {
+      bookingTour = strongTourMatch(tours, userTexts.join(' '));
     }
-    void ordinal;
   }
 
   if (inBooking && (bookingTour || wantsCustom || phone || name)) {
