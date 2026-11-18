@@ -1,16 +1,16 @@
 import 'dotenv/config';
 import express from 'express';
-import {
-  GoogleGenAI,
-  Type,
-  type Content,
-  type FunctionDeclaration,
-  type Part,
-} from '@google/genai';
 
-
-const MODEL_NAME = 'gemini-4-hydrogen';
-const VALID_PHONE_REGEX = /^(0|\+84)[0-9]{8,10}$/;
+// ---------------------------------------------------------------------------
+// Mây Lang Thang chat API — local rule-based engine (no external AI calls).
+//
+// The web frontend posts { messages, lang, catalog } and renders
+// { reply, recommendedTourIds, bookingSubmission }. This engine answers from
+// the catalog the client sends: tour search (destination / price / duration),
+// destination info, contact info, and a conversational booking flow that
+// collects name + Vietnamese phone across turns (stateless: everything is
+// re-derived from the message history on each request).
+// ---------------------------------------------------------------------------
 
 interface ChatHistoryItem {
   role: 'user' | 'model';
@@ -71,149 +71,537 @@ interface BookingSubmissionPayload {
   note: string;
 }
 
-const recommendToursDeclaration: FunctionDeclaration = {
-  name: 'recommend_tours',
-  description:
-    'Display interactive tour recommendation cards in the chat UI for 1 to 3 tours from the Mây Lang Thang catalog that match the traveler’s preferences.',
-  parameters: {
-    type: Type.OBJECT,
-    properties: {
-      tourIds: {
-        type: Type.ARRAY,
-        items: { type: Type.STRING },
-        description:
-          'Exact tour IDs from the provided catalog (1 to 3 IDs).',
-      },
-      reason: {
-        type: Type.STRING,
-        description: 'Brief internal summary of why these tours match.',
-      },
-    },
-    required: ['tourIds'],
-  },
-};
+interface ChatResult {
+  reply: string;
+  recommendedTourIds: string[];
+  bookingSubmission: BookingSubmissionPayload | null;
+}
 
-const submitBookingInquiryDeclaration: FunctionDeclaration = {
-  name: 'submit_booking_inquiry',
-  description:
-    'Create and save a booking reservation inquiry when the traveler has explicitly provided their full name, a valid Vietnamese phone number (e.g. 0912345678 or +84912345678), chosen a tour (or custom-private), and confirmed they want to reserve/book.',
-  parameters: {
-    type: Type.OBJECT,
-    properties: {
-      fullName: {
-        type: Type.STRING,
-        description: 'Traveler full name (at least 2 characters).',
-      },
-      phone: {
-        type: Type.STRING,
-        description:
-          'Traveler Vietnamese phone number (digits starting with 0 or +84, 9-11 digits).',
-      },
-      tourId: {
-        type: Type.STRING,
-        description:
-          'Exact tour ID from the catalog, or "custom-private" for a tailored itinerary.',
-      },
-      packageId: {
-        type: Type.STRING,
-        description:
-          'Stay tier package ID: "local-standard", "boutique-retreat", or "private-group". Defaults to "local-standard" if unspecified.',
-      },
-      note: {
-        type: Type.STRING,
-        description:
-          'Optional details such as preferred travel dates, guest count, dietary notes, or requested add-ons.',
-      },
-    },
-    required: ['fullName', 'phone', 'tourId'],
-  },
-};
+const VALID_PHONE_REGEX = /^(0|\+84)[0-9]{8,10}$/;
+type Lang = 'vi' | 'en';
 
-function buildSystemInstruction(lang: 'vi' | 'en', catalog: CatalogPayload): string {
-  const tours = Array.isArray(catalog.tours) ? catalog.tours.slice(0, 40) : [];
-  const destinations = Array.isArray(catalog.destinations)
-    ? catalog.destinations.slice(0, 40)
-    : [];
-  const experiences = Array.isArray(catalog.experiences)
-    ? catalog.experiences.slice(0, 30)
-    : [];
+// --- text helpers -----------------------------------------------------------
+
+function norm(s: string): string {
+  return (s || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function fmtPrice(n: number): string {
+  return `${Math.round(n).toLocaleString('en-US')}₫`;
+}
+
+function tourHaystack(t: CatalogTourSummary): string {
+  return norm(`${t.title} ${t.destination} ${t.zone} ${t.category}`);
+}
+
+function parseNumber(raw: string): number {
+  // "3,5" / "3.5" -> 3.5 ; "3.500.000" -> 3500000
+  const cleaned = raw.replace(/\s/g, '');
+  if (/^\d{1,3}(\.\d{3})+$/.test(cleaned)) return Number(cleaned.replace(/\./g, ''));
+  return Number(cleaned.replace(',', '.'));
+}
+
+interface SearchFilters {
+  maxPrice?: number;
+  minPrice?: number;
+  days?: number;
+  cheapest: boolean;
+}
+
+function parseFilters(text: string): SearchFilters {
+  const t = ` ${norm(text)} `;
+  const f: SearchFilters = { cheapest: false };
+
+  const range = t.match(/(\d+(?:[.,]\d+)?)\s*(?:trieu|tr|million|mil)\s*(?:-|–|den|to|~)\s*(\d+(?:[.,]\d+)?)\s*(?:trieu|tr|million|mil)/);
+  if (range) {
+    f.minPrice = parseNumber(range[1]) * 1_000_000;
+    f.maxPrice = parseNumber(range[2]) * 1_000_000;
+  } else {
+    const under = t.match(/(?:duoi|under|below|max|tam|khoang|chi co)\s*(\d+(?:[.,]\d+)?)\s*(trieu|tr|k|nghin|million|mil)/);
+    const plain = t.match(/(\d+(?:[.,]\d+)?)\s*(trieu|tr|million|mil)\b/);
+    const kOnly = t.match(/(\d+(?:[.,]\d+)?)\s*(k|nghin)\b/);
+    if (under) {
+      const mult = under[2] === 'k' || under[2] === 'nghin' ? 1_000 : 1_000_000;
+      f.maxPrice = parseNumber(under[1]) * mult;
+    } else if (plain) {
+      f.maxPrice = parseNumber(plain[1]) * 1_000_000;
+    } else if (kOnly && /(gia|price|tour)/.test(t)) {
+      f.maxPrice = parseNumber(kOnly[1]) * 1_000;
+    }
+  }
+
+  const dur = t.match(/(\d+)\s*(?:ngay|n)\s*(?:(\d+)\s*(?:dem|d))?/) || t.match(/(\d+)n(\d+)d/);
+  if (dur && /(ngay|dem|n\d|tour|di)/.test(t)) {
+    const d = Number(dur[1]);
+    if (d >= 1 && d <= 30) f.days = d;
+  }
+  if (/cuoi tuan/.test(t) && !f.days) f.days = 2;
+  if (/re nhat|cheapest|gia re/.test(t)) f.cheapest = true;
+  return f;
+}
+
+function tourDays(t: CatalogTourSummary): number | null {
+  const m = norm(t.duration).match(/(\d+)\s*ngay/);
+  return m ? Number(m[1]) : null;
+}
+
+function applyFilters(tours: CatalogTourSummary[], f: SearchFilters): CatalogTourSummary[] {
+  return tours.filter((t) => {
+    if (f.maxPrice !== undefined && t.price > f.maxPrice) return false;
+    if (f.minPrice !== undefined && t.price < f.minPrice) return false;
+    if (f.days !== undefined) {
+      const d = tourDays(t);
+      if (d !== null && d !== f.days) return false;
+    }
+    return true;
+  });
+}
+
+function scoreTours(tours: CatalogTourSummary[], text: string): CatalogTourSummary[] {
+  const t = norm(text);
+  const words = t.split(' ').filter((w) => w.length >= 4);
+  const scored = tours.map((tour) => {
+    const hay = tourHaystack(tour);
+    let score = 0;
+    if (t.includes(norm(tour.destination))) score += 6;
+    if (tour.zone && t.includes(norm(tour.zone))) score += 2;
+    if (tour.category && t.includes(norm(tour.category))) score += 2;
+    for (const w of words) if (hay.includes(w)) score += 1;
+    return { tour, score };
+  });
+  return scored
+    .filter((s) => s.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .map((s) => s.tour);
+}
+
+function matchDestination(
+  destinations: CatalogDestinationSummary[],
+  text: string
+): CatalogDestinationSummary | null {
+  const t = norm(text);
+  let best: CatalogDestinationSummary | null = null;
+  let bestLen = 0;
+  for (const d of destinations) {
+    for (const cand of [d.name, d.region]) {
+      const n = norm(cand || '');
+      if (n.length >= 3 && t.includes(n) && n.length > bestLen) {
+        best = d;
+        bestLen = n.length;
+      }
+    }
+  }
+  return best;
+}
+
+function extractPhone(texts: string[]): string | null {
+  for (let i = texts.length - 1; i >= 0; i--) {
+    const candidates = texts[i].match(/(?:\+84|0)(?:[\s.\-]?\d){8,12}/g) || [];
+    for (const c of candidates) {
+      const cleaned = c.replace(/[\s.\-]/g, '');
+      if (VALID_PHONE_REGEX.test(cleaned)) return cleaned;
+      // A longer run may contain the number plus an extra digit run; try trims.
+      for (const cand of [cleaned.slice(0, 11), cleaned.slice(0, 10)]) {
+        if (VALID_PHONE_REGEX.test(cand)) return cand;
+      }
+    }
+  }
+  return null;
+}
+
+const NAME_STOPWORDS = new Set([
+  'tour', 'xin', 'chao', 'hello', 'dat', 'muon', 'can', 'hoi',
+  'gia', 'nguoi', 'dien', 'thoai', 'so', 'phone', 'the', 'and', 'cho',
+]);
+const NAME_FILLERS = new Set(['la', 'ten', 'minh', 'toi', 'my', 'name', 'is', 'i', 'am']);
+
+function cleanName(raw: string): string | null {
+  let words = raw
+    .replace(/[^\p{L}\s'-]/gu, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+  while (words.length > 0 && NAME_FILLERS.has(norm(words[0]))) words = words.slice(1);
+  words = words.slice(0, 4);
+  if (words.length === 0) return null;
+  if (words.some((w) => NAME_STOPWORDS.has(norm(w)))) return null;
+  const name = words.join(' ');
+  return name.trim().length >= 2 ? name.trim() : null;
+}
+
+function extractName(userTexts: string[], lastModelText: string): string | null {
+  for (let i = userTexts.length - 1; i >= 0; i--) {
+    const m = userTexts[i].match(
+      /(?:tên mình là|tên tôi là|tôi tên|mình tên|họ tên|my name is|name is|tên)\s*[:\-]?\s*([^\d,.;:]+)/i
+    );
+    if (m) {
+      const n = cleanName(m[1]);
+      if (n) return n;
+    }
+    // "Nguyễn Văn An, 0912345678" — a bare name sent together with the phone.
+    const withoutPhone = userTexts[i].replace(/(?:\+84|0)(?:[\s.\-]?\d){8,12}/g, ' ');
+    if (withoutPhone !== userTexts[i]) {
+      const words = withoutPhone.trim().split(/\s+/).filter(Boolean);
+      if (words.length >= 2 && words.length <= 4 && !/\d/.test(withoutPhone)) {
+        const n = cleanName(withoutPhone);
+        if (n) return n;
+      }
+    }
+  }
+  // If the assistant just asked for a name and the reply is a short plain
+  // phrase, treat the whole reply as the name.
+  const askedName = /(ho ten|ten cua ban|your name|xin ten)/.test(norm(lastModelText));
+  const last = (userTexts[userTexts.length - 1] || '').replace(
+    /(?:\+84|0)(?:[\s.\-]?\d){8,12}/g,
+    ' '
+  );
+  if (askedName && last.trim()) {
+    const words = last.trim().split(/\s+/).filter(Boolean);
+    if (words.length >= 2 && words.length <= 4 && !/\d/.test(last)) {
+      return cleanName(last);
+    }
+  }
+  return null;
+}
+
+function extractNoteBits(userTexts: string[]): string {
+  const bits: string[] = [];
+  for (const text of userTexts) {
+    const t = norm(text);
+    const date = text.match(/\d{1,2}\/\d{1,2}(?:\/\d{2,4})?/);
+    if (date) bits.push(`Ngày đi dự kiến: ${date[0]}`);
+    const guests = text.match(/(\d+)\s*(người lớn|trẻ em|người|khách|nguoi lon|tre em|nguoi|khach)/i);
+    if (guests) bits.push(`Số khách: ${guests[1]} ${guests[2]}`);
+    const month = t.match(/thang\s*(\d{1,2})/);
+    if (month) bits.push(`Thời gian dự kiến: tháng ${month[1]}`);
+  }
+  return [...new Set(bits)].join('; ').slice(0, 1000);
+}
+
+/** Tours shown most recently, recovered from **bold** titles in bot replies. */
+function lastShownTours(
+  history: ChatHistoryItem[],
+  tours: CatalogTourSummary[]
+): CatalogTourSummary[] {
+  for (let i = history.length - 1; i >= 0; i--) {
+    if (history[i].role !== 'model') continue;
+    const bolds = [...history[i].text.matchAll(/\*\*([^*]+)\*\*/g)].map((m) => m[1]);
+    const found: CatalogTourSummary[] = [];
+    for (const b of bolds) {
+      const nb = norm(b);
+      const tour = tours.find(
+        (t) => nb === norm(t.title) || nb.includes(norm(t.title)) || norm(t.title).includes(nb)
+      );
+      if (tour && !found.includes(tour)) found.push(tour);
+    }
+    if (found.length > 0) return found;
+  }
+  return [];
+}
+
+function pickPackage(
+  tour: CatalogTourSummary | null,
+  text: string
+): { id: string; label: string } {
+  const t = norm(text);
+  let wanted = 'local-standard';
+  if (/(boutique|cao cap|sang trong|resort)/.test(t)) wanted = 'boutique-retreat';
+  if (/(nhom rieng|private|rieng tu|doan rieng)/.test(t)) wanted = 'private-group';
+  const pkgs = tour?.packages || [];
+  const found = pkgs.find((p) => p.id === wanted) || pkgs[0];
+  if (found) return { id: found.id, label: found.label };
+  return {
+    id: wanted,
+    label:
+      wanted === 'boutique-retreat'
+        ? 'Gói Boutique'
+        : wanted === 'private-group'
+          ? 'Nhóm riêng tư'
+          : 'Gói Bản Địa',
+  };
+}
+
+// --- reply builders ---------------------------------------------------------
+
+function tourLine(t: CatalogTourSummary): string {
+  return `**${t.title}** — ${t.duration} · ${fmtPrice(t.price)}`;
+}
+
+function listReply(
+  lang: Lang,
+  intro: string,
+  tours: CatalogTourSummary[],
+  outro?: string
+): ChatResult {
+  const lines = tours.slice(0, 3).map((t, i) => `${i + 1}. ${tourLine(t)}`);
+  const reply = [intro, ...lines, outro || (lang === 'en'
+    ? 'Tell me a tour number (or its name) if you want details or to book it.'
+    : 'Bạn ưng tour nào thì nhắn số thứ tự (hoặc tên tour), mình tư vấn chi tiết và giữ chỗ giúp bạn nhé.')]
+    .filter(Boolean)
+    .join('\n');
+  return {
+    reply,
+    recommendedTourIds: tours.slice(0, 3).map((t) => t.id),
+    bookingSubmission: null,
+  };
+}
+
+function tourDetail(t: CatalogTourSummary, lang: Lang): ChatResult {
+  const hl = (t.highlights || []).slice(0, 4);
+  const pkgLines = (t.packages || []).map(
+    (p) => `- ${p.label}: ${p.priceDelta > 0 ? `+${fmtPrice(p.priceDelta)}` : fmtPrice(0).replace('0₫', 'đã gồm trong giá')}${p.summary ? ` — ${p.summary}` : ''}`
+  );
+  const vi = [
+    `**${t.title}**`,
+    `📍 ${t.destination} · ${t.duration} · ${t.groupSize}`,
+    `💰 Giá từ **${fmtPrice(t.price)}**/khách · ${t.departureInfo}`,
+    hl.length ? `✨ Nổi bật: ${hl.join('; ')}` : '',
+    pkgLines.length ? `Các gói:\n${pkgLines.join('\n')}` : '',
+    'Bạn muốn mình giữ chỗ tour này không? Chỉ cần cho mình **họ tên** và **số điện thoại**, mình ghi nhận ngay.',
+  ];
+  const en = [
+    `**${t.title}**`,
+    `📍 ${t.destination} · ${t.duration} · ${t.groupSize}`,
+    `💰 From **${fmtPrice(t.price)}**/guest · ${t.departureInfo}`,
+    hl.length ? `✨ Highlights: ${hl.join('; ')}` : '',
+    pkgLines.length ? `Packages:\n${pkgLines.join('\n')}` : '',
+    'Shall I hold a spot on this tour? Just send me your **full name** and **phone number**.',
+  ];
+  return {
+    reply: (lang === 'en' ? en : vi).filter(Boolean).join('\n'),
+    recommendedTourIds: [t.id],
+    bookingSubmission: null,
+  };
+}
+
+// --- main engine --------------------------------------------------------------
+
+function handleChat(history: ChatHistoryItem[], lang: Lang, catalog: CatalogPayload): ChatResult {
+  const tours = Array.isArray(catalog.tours) ? catalog.tours : [];
+  const destinations = Array.isArray(catalog.destinations) ? catalog.destinations : [];
+  const experiences = Array.isArray(catalog.experiences) ? catalog.experiences : [];
   const contact = catalog.contact || {};
 
-  const tourLines = tours
-    .map((t) => {
-      const pkgText = (t.packages || [])
-        .map((p) => `${p.id} (${p.label}: +${p.priceDelta.toLocaleString('en-US')}₫)`)
-        .join(', ');
-      return `- [${t.id}] "${t.title}" | ${t.destination} (${t.zone}) | ${t.category} | ${t.duration} | Giá gốc: ${t.price.toLocaleString('en-US')}₫ | ${t.groupSize} | ${t.departureInfo} | Gói: ${pkgText}`;
-    })
-    .join('\n');
+  const userTexts = history.filter((m) => m.role === 'user').map((m) => m.text);
+  const lastUser = userTexts[userTexts.length - 1] || '';
+  const lastModel = [...history].reverse().find((m) => m.role === 'model')?.text || '';
+  const t = norm(lastUser);
+  const allUserNorm = norm(userTexts.join(' '));
 
-  const destLines = destinations
-    .map(
-      (d) =>
-        `- ${d.name} (${d.region}, ${d.zone}) · Mùa đẹp: ${d.bestSeason} · ${d.tagline}`
-    )
-    .join('\n');
+  const featured = tours.slice(0, 3);
+  const shownBefore = lastShownTours(history, tours);
 
-  const expLines = experiences
-    .map((e) => `- ${e.title} (${e.location} · ${e.duration})`)
-    .join('\n');
+  // ---------- booking flow ----------
+  const phone = extractPhone(userTexts);
+  const name = extractName(userTexts, lastModel);
+  const askedBookingInfo = /(giu cho|ho ten|so dien thoai|hold a spot|full name|phone number)/.test(norm(lastModel));
+  const wantsCustom = /(thiet ke rieng|lich trinh rieng|tour rieng theo|tailored|custom)/.test(t) ||
+    /(thiet ke rieng|lich trinh rieng|tailored|custom)/.test(allUserNorm);
+  const bookingWords = /(dat tour|dat cho|giu cho|muon dat|chot tour|dang ky|book|reserve|dat ngay)/.test(t);
+  const gaveInfo = Boolean(phone || name) && (askedBookingInfo || bookingWords);
+  const inBooking = bookingWords || askedBookingInfo || gaveInfo;
 
-  return `Bạn là Chuyên viên Tư vấn Hành trình của "Mây Lang Thang" (khẩu hiệu: "Đi chậm, sống nhiều.").
-Phong cách giao tiếp: Ấm áp, chân thành, điềm tĩnh, tinh tế, thực tế và không dùng ngôn từ quảng cáo phô trương.
-Ngôn ngữ giao diện hiện tại: ${lang === 'en' ? 'English (trả lời bằng tiếng Anh trừ khi khách chủ động nhắn tiếng Việt)' : 'Tiếng Việt (trả lời tiếng Việt tự nhiên, xưng "mình" hoặc "Mây Lang Thang", gọi khách là "bạn")'}.
+  // Which tour is the booking about?
+  let bookingTour: CatalogTourSummary | null = null;
+  if (!wantsCustom) {
+    const scoredNow = scoreTours(tours, lastUser);
+    const ordinal = t.match(/(?:tour|goi|so|chuyen)?\s*([123])\b/) || t.match(/dau tien/) ;
+    if (bookingWords && scoredNow.length > 0 && /(dat|book|giu|chot)/.test(t)) {
+      bookingTour = scoredNow[0];
+    } else if (shownBefore.length > 0 && (bookingWords || askedBookingInfo || gaveInfo)) {
+      let idx = 0;
+      if (/thu hai|so 2|\b2\b/.test(t)) idx = 1;
+      if (/thu ba|so 3|\b3\b/.test(t)) idx = 2;
+      bookingTour = shownBefore[Math.min(idx, shownBefore.length - 1)];
+    } else if (askedBookingInfo || gaveInfo) {
+      bookingTour = scoreTours(tours, userTexts.join(' '))[0] || shownBefore[0] || null;
+    }
+    void ordinal;
+  }
 
-NGUYÊN TẮC BẮT BUỘC:
-1. Chỉ tư vấn các tour, điểm đến, trải nghiệm và mức giá CÓ THẬT trong danh mục bên dưới. Tuyệt đối không bịa thêm tour, giá hoặc lịch trình ngoài danh mục. Nếu khách muốn đi tuyến chưa có sẵn, đề xuất mã "custom-private" (Thiết kế lịch trình riêng cho gia đình / nhóm riêng).
-2. Hỏi ngắn gọn để hiểu nhu cầu (số ngày, đi biển/núi/văn hóa/ẩm thực, số khách, tháng dự kiến) rồi đề xuất 1–3 tour phù hợp nhất.
-3. Mỗi khi giới thiệu 1–3 tour cụ thể từ danh mục, BẮT BUỘC gọi tool \`recommend_tours\` với đúng danh sách \`tourIds\` để hệ thống hiển thị thẻ tour trực quan cho khách.
-4. Khi khách muốn chốt tour / giữ chỗ ("đặt tour", "chốt giúp mình", "giữ chỗ"):
-   - Giải thích nhẹ nhàng rằng khách chưa cần thanh toán ngay, chỉ cần để lại **Họ tên** + **Số điện thoại** + **Tour/Gói mong muốn** (và ngày dự kiến/số khách nếu có).
-   - CHỈ gọi tool \`submit_booking_inquiry\` khi bạn ĐÃ CÓ đủ: Họ tên rõ ràng (>= 2 ký tự), Số điện thoại Việt Nam hợp lệ (bắt đầu bằng 0 hoặc +84, 10–11 số), và tour cụ thể. Nếu thiếu tên hoặc SĐT chưa hợp lệ, hãy hỏi lại khách trước khi gọi tool.
-5. Trả lời súc tích (khoảng 3–6 câu hoặc gạch đầu dòng ngắn gọn, dễ đọc trên khung chat).
+  if (inBooking && (bookingTour || wantsCustom || phone || name)) {
+    const pkg = pickPackage(bookingTour, userTexts.join(' '));
+    const tourTitle = bookingTour
+      ? bookingTour.title
+      : lang === 'en'
+        ? 'Tailored Private Itinerary'
+        : 'Thiết kế lịch trình riêng';
 
-THÔNG TIN LIÊN HỆ MÂY LANG THANG:
-- Hotline: ${contact.hotline || '1900 6868 24'} · Zalo/ĐT: ${contact.phone || '0912 345 678'} · Email: ${contact.email || 'xin-chao@maylangthang.vn'}
-- Giờ làm việc: ${contact.workingHours || '08:00 – 20:00 (Thứ 2 – Chủ nhật)'}
-- VP TP.HCM: ${contact.address || '42 Trần Quốc Thảo, Quận 3, TP.HCM'}
-- VP Hà Nội: ${contact.hanoiOffice || '18 Hàng Trống, Hoàn Kiếm, Hà Nội'}
-- Dịch vụ chọn thêm phổ biến: Đưa đón sân bay/ga tàu (+450,000₫), Nhiếp ảnh gia nửa ngày (+1,200,000₫), Thực đơn chay/dị ứng (+250,000₫).
+    if (bookingTour || wantsCustom) {
+      const missing: string[] = [];
+      if (!name) missing.push(lang === 'en' ? '**full name**' : '**họ tên**');
+      if (!phone) missing.push(lang === 'en' ? '**phone number**' : '**số điện thoại**');
+      if (missing.length > 0) {
+        const reply = lang === 'en'
+          ? `Great choice — **${tourTitle}** (${pkg.label}). To hold your spot I just need your ${missing.join(' and ')}. You can send both in one message, e.g. "Nguyen Van A, 0912345678".`
+          : `Tour **${tourTitle}** (${pkg.label}) rất đáng đi đó bạn. Để mình giữ chỗ, bạn cho mình xin ${missing.join(' và ')} nhé — gửi chung một tin cũng được, ví dụ: "Nguyễn Văn A, 0912345678".`;
+        return { reply, recommendedTourIds: bookingTour ? [bookingTour.id] : [], bookingSubmission: null };
+      }
+      const note = extractNoteBits(userTexts);
+      const submission: BookingSubmissionPayload = {
+        fullName: name as string,
+        phone: phone as string,
+        tourId: bookingTour ? bookingTour.id : 'custom-private',
+        tourTitle,
+        packageId: pkg.id,
+        packageLabel: pkg.label,
+        note,
+      };
+      const reply = lang === 'en'
+        ? `Thank you, ${name}! I've noted your booking request:\n**${tourTitle}** · ${pkg.label}\n📞 ${phone}\nThe Mây Lang Thang team will call you shortly to confirm the details.`
+        : `Cảm ơn bạn ${name}! Mình đã ghi nhận yêu cầu đặt tour:\n**${tourTitle}** · ${pkg.label}\n📞 ${phone}\nĐội Mây Lang Thang sẽ gọi lại sớm để xác nhận chi tiết với bạn nhé.`;
+      return { reply, recommendedTourIds: bookingTour ? [bookingTour.id] : [], bookingSubmission: submission };
+    }
+    // Booking intent but no tour identified yet.
+    const reply = lang === 'en'
+      ? 'I would love to help you book. Which tour are you interested in? Here are a few favourites:'
+      : 'Mình rất sẵn lòng giúp bạn đặt tour. Bạn đang quan tâm tour nào dưới đây, hay một điểm đến khác?';
+    return listReply(lang, reply, featured);
+  }
 
-DANH SÁCH ĐIỂM ĐẾN ĐANG MỞ:
-${destLines || '(Chưa có dữ liệu)'}
+  // ---------- greeting ----------
+  const greetingOnly =
+    (/^(xin chao|chao|hello|hi|hey|alo|good (morning|afternoon|evening))\b/.test(t) &&
+      !/(tour|under|price|book|million|trieu|ngay|dem|di dau|where|what)/.test(t)) ||
+    t.length <= 3;
+  if (greetingOnly) {
+    const reply = lang === 'en'
+      ? 'Hello and welcome to **Mây Lang Thang** — "Travel slow, live more." I can help you find tours by destination, budget or length, share trip ideas, or hold a booking. Where would you like to go?'
+      : 'Xin chào bạn, mình là trợ lý của **Mây Lang Thang** — "Đi chậm, sống nhiều." Mình giúp bạn tìm tour theo điểm đến, ngân sách hay số ngày, gợi ý trải nghiệm, và giữ chỗ đặt tour. Bạn đang muốn đi đâu?';
+    return listReply(lang, reply, featured, lang === 'en' ? 'A few journeys travellers love:' : 'Một vài hành trình được yêu thích:');
+  }
 
-DANH SÁCH TOUR HIỆN CÓ:
-${tourLines || '(Chưa có dữ liệu)'}
+  // ---------- contact ----------
+  if (/(hotline|lien he|so dien thoai|email|dia chi|gio lam viec|contact|call you|phone number|address)/.test(t)) {
+    const lines: string[] = [lang === 'en' ? 'Here is how to reach **Mây Lang Thang**:' : 'Thông tin liên hệ của **Mây Lang Thang** đây bạn:'];
+    if (contact.hotline) lines.push(`📞 Hotline: **${contact.hotline}**`);
+    if (contact.phone && contact.phone !== contact.hotline) lines.push(`📱 ${contact.phone}`);
+    if (contact.email) lines.push(`✉️ Email: **${contact.email}**`);
+    if (contact.workingHours) lines.push(`🕘 ${contact.workingHours}`);
+    if (contact.address) lines.push(`📍 ${contact.address}`);
+    if (contact.hanoiOffice) lines.push(`📍 ${contact.hanoiOffice}`);
+    lines.push(lang === 'en' ? 'Or just tell me here — I can hold a tour for you right in this chat.' : 'Hoặc bạn cứ nhắn ngay tại đây — mình giữ chỗ tour giúp bạn luôn trong khung chat này.');
+    return { reply: lines.join('\n'), recommendedTourIds: [], bookingSubmission: null };
+  }
 
-TRẢI NGHIỆM BẢN ĐỊA LẺ:
-${expLines || '(Chưa có dữ liệu)'}`;
+  // ---------- about ----------
+  if (/(may lang thang)/.test(t) && /(la ai|la gi|gioi thieu|about|who are)/.test(t)) {
+    const reply = lang === 'en'
+      ? '**Mây Lang Thang** is a small Vietnam travel studio built around one idea — "Travel slow, live more." We craft small-group and private journeys with local hosts across Vietnam. Tell me a place or a budget and I will line up the right trips for you.'
+      : '**Mây Lang Thang** là một studio du lịch nhỏ, theo đuổi triết lý "Đi chậm, sống nhiều" — những hành trình nhóm nhỏ và tour riêng cùng người bản địa khắp Việt Nam. Bạn cứ nói một điểm đến hoặc mức ngân sách, mình xếp tour phù hợp cho bạn ngay.';
+    return listReply(lang, reply, featured);
+  }
+
+  // ---------- experiences ----------
+  if (/(trai nghiem|experience|workshop|hoat dong|activities)/.test(t) && experiences.length > 0) {
+    const lines = experiences.slice(0, 5).map((e) => `- **${e.title}** — ${e.location} · ${e.duration}`);
+    const reply = [
+      lang === 'en' ? 'Local experiences travellers love:' : 'Những trải nghiệm bản địa được yêu thích:',
+      ...lines,
+      lang === 'en' ? 'Want a tour that includes one of these? Tell me the destination.' : 'Bạn muốn tour nào có kèm trải nghiệm này không? Nhắn mình điểm đến nhé.',
+    ].join('\n');
+    return { reply, recommendedTourIds: [], bookingSubmission: null };
+  }
+
+  // ---------- destination info ----------
+  const dest = matchDestination(destinations, lastUser);
+  const destTours = dest ? tours.filter((x) => norm(x.destination) === norm(dest.name) || tourHaystack(x).includes(norm(dest.name))) : [];
+  if (dest && /(mua nao|thoi tiet|co gi|gioi thieu|dep|nen di|best season|weather|about|visit)/.test(t)) {
+    const reply = lang === 'en'
+      ? `**${dest.name}** (${dest.region}) — ${dest.tagline}\n🌤 Best season: **${dest.bestSeason}**.\nHere are the journeys we run there:`
+      : `**${dest.name}** (${dest.region}) — ${dest.tagline}\n🌤 Mùa đẹp nhất: **${dest.bestSeason}**.\nCác hành trình Mây Lang Thang đang mở ở đây:`;
+    if (destTours.length > 0) return listReply(lang, reply, destTours);
+    return { reply, recommendedTourIds: [], bookingSubmission: null };
+  }
+
+  // ---------- tour search / detail ----------
+  const filters = parseFilters(lastUser);
+  const pool = applyFilters(tours, filters);
+  const matched = scoreTours(pool, lastUser);
+  const hasFilter = filters.maxPrice !== undefined || filters.minPrice !== undefined || filters.days !== undefined;
+
+  if (matched.length > 0) {
+    const detailAsk = /(chi tiet|gia bao nhieu|gia the nao|thong tin|detail|how much|price of|bao nhieu tien)/.test(t);
+    if (matched.length === 1 || detailAsk) return tourDetail(matched[0], lang);
+    let intro: string;
+    if (lang === 'en') {
+      intro = hasFilter
+        ? `I found **${matched.length}** tour(s) matching your filters:`
+        : `Here are the journeys that fit you best:`;
+    } else {
+      intro = hasFilter
+        ? `Mình tìm thấy **${matched.length} tour** hợp với yêu cầu của bạn:`
+        : 'Những hành trình hợp với bạn nhất đây:';
+    }
+    let list = matched;
+    if (filters.cheapest) list = [...matched].sort((a, b) => a.price - b.price);
+    return listReply(lang, intro, list);
+  }
+
+  if (hasFilter && pool.length > 0) {
+    // Filters matched tours even though no keyword scored — present the
+    // filtered pool itself as the result set.
+    const sorted = [...pool].sort((a, b) => a.price - b.price);
+    const intro = lang === 'en'
+      ? `I found **${sorted.length}** tour(s) within your criteria:`
+      : `Mình tìm thấy **${sorted.length} tour** trong tầm tiêu chí của bạn:`;
+    return listReply(lang, intro, sorted);
+  }
+
+  if (hasFilter && tours.length > 0) {
+    // Nothing fits the filters at all — show the closest (cheapest) options.
+    const sorted = [...tours].sort((a, b) => a.price - b.price);
+    const intro = lang === 'en'
+      ? 'No tour fits that budget/length right now — here are the closest options:'
+      : 'Hiện chưa có tour nào vừa đúng tiêu chí đó — đây là những lựa chọn gần nhất:';
+    return listReply(lang, intro, sorted);
+  }
+
+  if (dest && destTours.length > 0) {
+    const intro = lang === 'en'
+      ? `Here are our journeys in **${dest.name}**:`
+      : `Các hành trình ở **${dest.name}** của Mây Lang Thang đây bạn:`;
+    return listReply(lang, intro, destTours);
+  }
+
+  if (/(cam on|thank)/.test(t)) {
+    return {
+      reply: lang === 'en'
+        ? 'You are very welcome! If you need anything else — a tour idea, a price, or a booking — just ask.'
+        : 'Không có chi đâu bạn! Cần thêm gợi ý tour, hỏi giá hay đặt chỗ thì cứ nhắn mình nhé.',
+      recommendedTourIds: [],
+      bookingSubmission: null,
+    };
+  }
+
+  // ---------- fallback ----------
+  const reply = lang === 'en'
+    ? 'I can help you: find tours by destination (e.g. "Da Lat tours"), by budget ("under 3 million"), by length ("3 days 2 nights"), show contact info, or hold a booking. Here are a few favourites:'
+    : 'Mình giúp được các việc: tìm tour theo điểm đến (ví dụ "tour Đà Lạt"), theo ngân sách ("dưới 3 triệu"), theo số ngày ("3 ngày 2 đêm"), xem thông tin liên hệ, hoặc giữ chỗ đặt tour. Gửi bạn vài tour được yêu thích:';
+  return listReply(lang, reply, featured);
 }
+
+// --- express app --------------------------------------------------------------
 
 function createApp() {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
 
-  app.post('/api/chat', async (req, res) => {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
-      res.status(500).json({
-        error:
-          'GEMINI_API_KEY chưa được cấu hình trong Settings > Secrets.',
-      });
-      return;
-    }
-
+  app.post('/api/chat', (req, res) => {
     try {
       const body = req.body as {
         messages?: ChatHistoryItem[];
         lang?: 'vi' | 'en';
         catalog?: CatalogPayload;
       };
-
       const rawMessages = Array.isArray(body?.messages) ? body.messages : [];
-      const lang: 'vi' | 'en' = body?.lang === 'en' ? 'en' : 'vi';
+      const lang: Lang = body?.lang === 'en' ? 'en' : 'vi';
       const catalog: CatalogPayload = body?.catalog || {};
-      const tours = Array.isArray(catalog.tours) ? catalog.tours : [];
 
       const sanitized = rawMessages
         .filter(
@@ -224,222 +612,19 @@ function createApp() {
             m.text.trim().length > 0
         )
         .slice(-16)
-        .map((m) => ({
-          role: m.role,
-          text: m.text.trim().slice(0, 2000),
-        }));
+        .map((m) => ({ role: m.role, text: m.text.trim().slice(0, 2000) }));
 
-      // Ensure conversation starts with a user turn
       const firstUserIdx = sanitized.findIndex((m) => m.role === 'user');
       if (firstUserIdx === -1) {
         res.status(400).json({ error: 'Tin nhắn trống.' });
         return;
       }
 
-      const conversationHistory: Content[] = sanitized
-        .slice(firstUserIdx)
-        .map((m) => ({
-          role: m.role,
-          parts: [{ text: m.text }],
-        }));
-
-      const ai = new GoogleGenAI({
-        apiKey,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build',
-          },
-        },
-      });
-
-      const systemInstruction = buildSystemInstruction(lang, catalog);
-      const tools = [
-        {
-          functionDeclarations: [
-            recommendToursDeclaration,
-            submitBookingInquiryDeclaration,
-          ],
-        },
-      ];
-
-      const validTourMap = new Map(tours.map((t) => [t.id, t]));
-      const recommendedTourIds: string[] = [];
-      let bookingSubmission: BookingSubmissionPayload | null = null;
-
-      let contents: Content[] = [...conversationHistory];
-      let finalText = '';
-
-      for (let step = 0; step < 3; step++) {
-        const response = await ai.models.generateContent({
-          model: MODEL_NAME,
-          contents,
-          config: {
-            systemInstruction,
-            tools,
-          },
-        });
-
-        const calls = response.functionCalls;
-        if (!calls || calls.length === 0) {
-          finalText = (response.text || '').trim();
-          break;
-        }
-
-        const previousContent = response.candidates?.[0]?.content;
-        if (!previousContent) {
-          finalText = (response.text || '').trim();
-          break;
-        }
-
-        const functionResponseParts: Part[] = [];
-
-        for (const call of calls) {
-          const args = (call.args || {}) as Record<string, unknown>;
-
-          if (call.name === 'recommend_tours') {
-            const rawIds = Array.isArray(args.tourIds) ? args.tourIds : [];
-            const matched = rawIds
-              .map((id) => String(id).trim())
-              .filter((id) => validTourMap.has(id))
-              .slice(0, 3);
-
-            matched.forEach((id) => {
-              if (!recommendedTourIds.includes(id)) {
-                recommendedTourIds.push(id);
-              }
-            });
-
-            functionResponseParts.push({
-              functionResponse: {
-                id: call.id,
-                name: 'recommend_tours',
-                response: {
-                  ok: true,
-                  displayedTourIds: matched,
-                },
-              },
-            });
-          } else if (call.name === 'submit_booking_inquiry') {
-            const fullName = String(args.fullName || '').trim().slice(0, 120);
-            const cleanedPhone = String(args.phone || '')
-              .replace(/[\s.-]/g, '')
-              .slice(0, 20);
-            const rawTourId = String(args.tourId || 'custom-private').trim();
-            const matchedTour = validTourMap.get(rawTourId);
-            const tourId = matchedTour ? matchedTour.id : 'custom-private';
-            const tourTitle = matchedTour
-              ? matchedTour.title
-              : lang === 'en'
-                ? 'Tailored Private Itinerary'
-                : 'Thiết kế lịch trình riêng';
-
-            const requestedPkgId = String(args.packageId || 'local-standard').trim();
-            const matchedPkg = matchedTour?.packages?.find(
-              (p) => p.id === requestedPkgId
-            ) || matchedTour?.packages?.[0];
-
-            const packageId = matchedPkg?.id || requestedPkgId || 'local-standard';
-            const packageLabel =
-              matchedPkg?.label ||
-              (packageId === 'boutique-retreat'
-                ? 'Gói Boutique'
-                : packageId === 'private-group'
-                  ? 'Nhóm riêng tư'
-                  : 'Gói Bản Địa');
-            const note = String(args.note || '').trim().slice(0, 1000);
-
-            if (fullName.length < 2) {
-              functionResponseParts.push({
-                functionResponse: {
-                  id: call.id,
-                  name: 'submit_booking_inquiry',
-                  response: {
-                    ok: false,
-                    error: 'Missing traveler full name (minimum 2 characters). Ask the user for their full name.',
-                  },
-                },
-              });
-            } else if (!VALID_PHONE_REGEX.test(cleanedPhone)) {
-              functionResponseParts.push({
-                functionResponse: {
-                  id: call.id,
-                  name: 'submit_booking_inquiry',
-                  response: {
-                    ok: false,
-                    error:
-                      'Invalid Vietnamese phone number format. Must start with 0 or +84 followed by 8 to 10 digits. Ask the user to provide a valid phone number.',
-                  },
-                },
-              });
-            } else {
-              bookingSubmission = {
-                fullName,
-                phone: cleanedPhone,
-                tourId,
-                tourTitle,
-                packageId,
-                packageLabel,
-                note,
-              };
-
-              functionResponseParts.push({
-                functionResponse: {
-                  id: call.id,
-                  name: 'submit_booking_inquiry',
-                  response: {
-                    ok: true,
-                    readyToPersist: true,
-                    fullName,
-                    phone: cleanedPhone,
-                    tourTitle,
-                    packageLabel,
-                  },
-                },
-              });
-            }
-          }
-        }
-
-        if (functionResponseParts.length === 0) {
-          finalText = (response.text || '').trim();
-          break;
-        }
-
-        contents = [
-          ...contents,
-          previousContent,
-          {
-            role: 'user',
-            parts: functionResponseParts,
-          },
-        ];
-      }
-
-      if (!finalText) {
-        finalText =
-          lang === 'en'
-            ? 'I have prepared those details for you below.'
-            : 'Mình đã cập nhật thông tin bên dưới để bạn xem nhé.';
-      }
-
-      res.json({
-        reply: finalText,
-        recommendedTourIds,
-        bookingSubmission,
-      });
+      const result = handleChat(sanitized.slice(firstUserIdx), lang, catalog);
+      res.json(result);
     } catch (error) {
-      console.error('Gemini chat error:', error);
-      const message =
-        error instanceof Error ? error.message : 'Unable to reach Gemini service.';
-      const status =
-        message.includes('PERMISSION_DENIED') || message.includes('403')
-          ? 403
-          : message.includes('RESOURCE_EXHAUSTED') || message.includes('429')
-            ? 429
-            : message.includes('API_KEY_INVALID')
-              ? 400
-              : 500;
-      res.status(status).json({ error: message });
+      console.error('Chat error:', error);
+      res.status(500).json({ error: 'Có lỗi xảy ra, bạn thử lại giúp mình nhé.' });
     }
   });
 
