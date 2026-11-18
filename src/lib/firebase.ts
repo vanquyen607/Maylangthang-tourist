@@ -102,6 +102,7 @@ export interface CmsSiteSettingsRecord {
   heroCtaLabel: string;
   heroImage: string;
   heroVideoUrl?: string;
+  notifyEmails?: string;
   brand: string;
   slogan: string;
   hotline: string;
@@ -291,10 +292,65 @@ export async function submitBookingInquiry(
 
   try {
     await setDoc(doc(db, BOOKINGS_COLLECTION, inquiryId), payload);
+    // Notify staff by email (fire-and-forget; never blocks or fails the booking)
+    void notifyStaffNewBooking({
+      inquiryId,
+      fullName,
+      phone,
+      tourTitle,
+      packageLabel,
+      note,
+    }).catch(() => undefined);
     return inquiryId;
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, docPath);
   }
+}
+
+// --- Staff email notifications for new bookings (via EmailJS, free tier) ---
+// These IDs are public by design (EmailJS browser integration).
+const EMAILJS_SERVICE_ID = 'service_ujekkjc';
+const EMAILJS_TEMPLATE_ID = 'template_2x0hdja';
+const EMAILJS_PUBLIC_KEY = 'koqgX0BloYAD-ldrJ';
+
+async function notifyStaffNewBooking(details: {
+  inquiryId: string;
+  fullName: string;
+  phone: string;
+  tourTitle: string;
+  packageLabel: string;
+  note: string;
+}): Promise<void> {
+  const snap = await getDoc(doc(db, SITE_SETTINGS_COLLECTION, SITE_SETTINGS_DOC_ID));
+  if (!snap.exists()) return;
+  const data = snap.data();
+  const notifyEmails =
+    typeof data.notifyEmails === 'string' ? data.notifyEmails.trim() : '';
+  const contactEmail = typeof data.email === 'string' ? data.email.trim() : '';
+  const toEmail = notifyEmails.length > 0 ? notifyEmails : contactEmail;
+  if (!toEmail) return;
+
+  await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      service_id: EMAILJS_SERVICE_ID,
+      template_id: EMAILJS_TEMPLATE_ID,
+      user_id: EMAILJS_PUBLIC_KEY,
+      template_params: {
+        to_email: toEmail,
+        inquiry_id: details.inquiryId,
+        customer_name: details.fullName,
+        customer_phone: details.phone,
+        tour_title: details.tourTitle,
+        package_label: details.packageLabel,
+        note: details.note || '(không có)',
+        created_at: new Date().toLocaleString('vi-VN', {
+          timeZone: 'Asia/Ho_Chi_Minh',
+        }),
+      },
+    }),
+  });
 }
 
 export function subscribeBookingInquiries(
@@ -714,6 +770,7 @@ export async function saveCmsSiteSettings(settings: CmsSiteSettingsRecord): Prom
     hanoiOffice: clampRequiredText(settings.hanoiOffice, 4, 300, 'Hà Nội'),
     workingHours: clampRequiredText(settings.workingHours, 2, 120, '08:00 – 20:00'),
     license: clampRequiredText(settings.license, 2, 200, 'TCDL-GP LHQT'),
+    notifyEmails: clampText(settings.notifyEmails || '', 300),
   };
 
   const trimmedVideo = clampText(settings.heroVideoUrl || '', 600);
@@ -752,6 +809,7 @@ export function subscribeCmsSiteSettings(
         hanoiOffice: String(d.hanoiOffice ?? ''),
         workingHours: String(d.workingHours ?? ''),
         license: String(d.license ?? ''),
+        notifyEmails: typeof d.notifyEmails === 'string' ? d.notifyEmails : '',
       });
     },
     (error) => {

@@ -1578,6 +1578,22 @@ export function AdminDashboard({
                       />
                     </div>
 
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-semibold mb-1">Email nhận thông báo đơn đặt tour mới</label>
+                      <input
+                        type="text"
+                        maxLength={300}
+                        placeholder="vd: nhanvien1@gmail.com, nhanvien2@gmail.com"
+                        value={settingsForm.notifyEmails ?? ''}
+                        onChange={(e) => {
+                          setSettingsDirty(true);
+                          setSettingsForm((prev) => ({ ...prev, notifyEmails: e.target.value }));
+                        }}
+                        className="w-full h-10 px-3.5 rounded-xl bg-[#F1F7F6] dark:bg-[#06181E] border border-[#0B2A33]/15 dark:border-white/15 text-xs sm:text-sm"
+                      />
+                      <p className="mt-1 text-[11px] opacity-70">Mỗi đơn đặt tour mới (qua form hoặc chatbot) sẽ được gửi email tới các địa chỉ này — nhiều email cách nhau bằng dấu phẩy. Để trống thì gửi tới Email liên hệ ở trên.</p>
+                    </div>
+
                     <div>
                       <label className="block text-xs font-semibold mb-1">Giờ làm việc</label>
                       <input

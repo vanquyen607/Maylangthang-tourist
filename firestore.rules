@@ -237,7 +237,7 @@ service cloud.firestore {
         && data.keys().hasOnly([
           'heroEyebrow', 'heroHeadline', 'heroSubtitle', 'heroCtaLabel', 'heroImage',
           'heroVideoUrl', 'brand', 'slogan', 'hotline', 'phone', 'email', 'address',
-          'hanoiOffice', 'workingHours', 'license', 'createdAt', 'updatedAt'
+          'hanoiOffice', 'workingHours', 'license', 'notifyEmails', 'createdAt', 'updatedAt'
         ])
         && data.heroEyebrow is string && data.heroEyebrow.size() >= 2 && data.heroEyebrow.size() <= 200
         && data.heroHeadline is string && data.heroHeadline.size() >= 2 && data.heroHeadline.size() <= 160
@@ -254,6 +254,7 @@ service cloud.firestore {
         && data.hanoiOffice is string && data.hanoiOffice.size() >= 4 && data.hanoiOffice.size() <= 300
         && data.workingHours is string && data.workingHours.size() >= 2 && data.workingHours.size() <= 120
         && data.license is string && data.license.size() >= 2 && data.license.size() <= 200
+        && (!('notifyEmails' in data) || (data.notifyEmails is string && data.notifyEmails.size() <= 300))
         && (
           (!isUpdate && data.createdAt == request.time && !('updatedAt' in data)) ||
           (isUpdate && 'updatedAt' in data && data.updatedAt == request.time)
