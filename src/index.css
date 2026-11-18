@@ -1,0 +1,44 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --color-deep-sea: #0b2a33;
+    --color-jade: #1f8a70;
+    --color-sun-gold: #f2b84b;
+    --color-lotus: #e8708a;
+    --color-mist-bg: #f1f7f6;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    font-family: 'Be Vietnam Pro', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+
+  h1,
+  h2,
+  h3,
+  .font-serif-display {
+    font-family: 'Playfair Display', Georgia, serif;
+  }
+}
+
+/* Tiện ích ẩn thanh cuộn ngang cho dải điểm đến mà vẫn giữ thao tác vuốt mượt */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Căn chỉnh số thẳng hàng trong giá tiền, số liệu và đánh giá */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}

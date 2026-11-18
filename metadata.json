@@ -1,0 +1,6 @@
+{
+  "name": "Mây Lang Thang",
+  "description": "Đi chậm, sống nhiều. Khám phá những hành trình du lịch chậm tinh tế và trải nghiệm bản địa khắp 63 tỉnh thành Việt Nam cùng Mây Lang Thang.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

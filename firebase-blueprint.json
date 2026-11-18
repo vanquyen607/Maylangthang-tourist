@@ -1,0 +1,192 @@
+{
+  "entities": {
+    "BookingInquiry": {
+      "title": "BookingInquiry",
+      "description": "Customer tour booking and itinerary consultation inquiry.",
+      "type": "object",
+      "properties": {
+        "fullName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "phone": { "type": "string", "minLength": 9, "maxLength": 20, "pattern": "^(0|\\+84)[0-9]{8,10}$" },
+        "tourId": { "type": "string", "minLength": 1, "maxLength": 80, "pattern": "^[a-zA-Z0-9_-]+$" },
+        "tourTitle": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "packageId": { "type": "string", "minLength": 1, "maxLength": 80, "pattern": "^[a-zA-Z0-9_-]+$" },
+        "packageLabel": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "note": { "type": "string", "maxLength": 1000 },
+        "lang": { "type": "string", "enum": ["vi", "en"] },
+        "status": { "type": "string", "enum": ["pending", "contacted", "confirmed", "archived"] },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["fullName", "phone", "tourId", "tourTitle", "packageId", "packageLabel", "lang", "status", "createdAt"]
+    },
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Authorized travel desk administrator record.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "minLength": 5, "maxLength": 160 },
+        "role": { "type": "string", "enum": ["admin"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "role", "createdAt"]
+    },
+    "CmsTour": {
+      "title": "CmsTour",
+      "description": "Admin-managed curated tour displayed on the public website.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "minLength": 2, "maxLength": 200 },
+        "destination": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "zone": { "type": "string", "enum": ["Miền Bắc", "Miền Trung", "Miền Nam"] },
+        "category": { "type": "string", "enum": ["Biển đảo", "Núi rừng", "Văn hóa", "Ẩm thực"] },
+        "duration": { "type": "string", "enum": ["2 ngày 1 đêm", "3 ngày 2 đêm"] },
+        "price": { "type": "number" },
+        "rating": { "type": "number" },
+        "reviewCount": { "type": "number" },
+        "groupSize": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "departureInfo": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "description": { "type": "string", "minLength": 5, "maxLength": 1500 },
+        "highlights": { "type": "array" },
+        "packages": { "type": "array" },
+        "image": { "type": "string", "minLength": 1, "maxLength": 600 },
+        "alt": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "isHidden": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "title", "destination", "zone", "category", "duration", "price",
+        "rating", "reviewCount", "groupSize", "departureInfo", "description",
+        "highlights", "packages", "image", "alt", "isHidden", "createdAt"
+      ]
+    },
+    "CmsDestination": {
+      "title": "CmsDestination",
+      "description": "Admin-managed region destination card and map pin.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "region": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "zone": { "type": "string", "enum": ["Miền Bắc", "Miền Trung", "Miền Nam"] },
+        "tagline": { "type": "string", "minLength": 2, "maxLength": 300 },
+        "bestSeason": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "coordinates": { "type": "array" },
+        "image": { "type": "string", "minLength": 1, "maxLength": 600 },
+        "alt": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "tourCount": { "type": "number" },
+        "isHidden": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "name", "region", "zone", "tagline", "bestSeason", "coordinates",
+        "image", "alt", "tourCount", "isHidden", "createdAt"
+      ]
+    },
+    "CmsExperience": {
+      "title": "CmsExperience",
+      "description": "Admin-managed local add-on experience card.",
+      "type": "object",
+      "properties": {
+        "index": { "type": "string", "minLength": 1, "maxLength": 16 },
+        "title": { "type": "string", "minLength": 2, "maxLength": 180 },
+        "location": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "duration": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "description": { "type": "string", "minLength": 5, "maxLength": 1200 },
+        "image": { "type": "string", "minLength": 1, "maxLength": 600 },
+        "alt": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "isHidden": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["index", "title", "location", "duration", "description", "image", "alt", "isHidden", "createdAt"]
+    },
+    "CmsJournalArticle": {
+      "title": "CmsJournalArticle",
+      "description": "Admin-managed editorial story in Nhật ký Mây.",
+      "type": "object",
+      "properties": {
+        "category": { "type": "string", "enum": ["Ký sự khách hàng", "Văn hóa bản địa", "Ẩm thực & Làng nghề"] },
+        "destination": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "title": { "type": "string", "minLength": 3, "maxLength": 220 },
+        "excerpt": { "type": "string", "minLength": 5, "maxLength": 600 },
+        "authorName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "authorRole": { "type": "string", "minLength": 2, "maxLength": 140 },
+        "publishedDate": { "type": "string", "minLength": 2, "maxLength": 60 },
+        "readTime": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "pullQuote": { "type": "string", "minLength": 2, "maxLength": 500 },
+        "paragraphs": { "type": "array" },
+        "image": { "type": "string", "minLength": 1, "maxLength": 600 },
+        "alt": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "isHidden": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "category", "destination", "title", "excerpt", "authorName", "authorRole",
+        "publishedDate", "readTime", "pullQuote", "paragraphs", "image", "alt",
+        "isHidden", "createdAt"
+      ]
+    },
+    "CmsSiteSettings": {
+      "title": "CmsSiteSettings",
+      "description": "Public hero banner and office contact settings managed by Admin.",
+      "type": "object",
+      "properties": {
+        "heroEyebrow": { "type": "string", "minLength": 2, "maxLength": 200 },
+        "heroHeadline": { "type": "string", "minLength": 2, "maxLength": 160 },
+        "heroSubtitle": { "type": "string", "minLength": 5, "maxLength": 600 },
+        "heroCtaLabel": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "heroImage": { "type": "string", "minLength": 1, "maxLength": 600 },
+        "heroVideoUrl": { "type": "string", "maxLength": 600 },
+        "brand": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "slogan": { "type": "string", "minLength": 2, "maxLength": 160 },
+        "hotline": { "type": "string", "minLength": 4, "maxLength": 40 },
+        "phone": { "type": "string", "minLength": 4, "maxLength": 40 },
+        "email": { "type": "string", "minLength": 5, "maxLength": 160 },
+        "address": { "type": "string", "minLength": 4, "maxLength": 300 },
+        "hanoiOffice": { "type": "string", "minLength": 4, "maxLength": 300 },
+        "workingHours": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "license": { "type": "string", "minLength": 2, "maxLength": 200 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "heroEyebrow", "heroHeadline", "heroSubtitle", "heroCtaLabel", "heroImage",
+        "brand", "slogan", "hotline", "phone", "email", "address", "hanoiOffice",
+        "workingHours", "license", "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/booking_inquiries/{inquiryId}": {
+      "schema": { "$ref": "#/entities/BookingInquiry" },
+      "description": "Customer slow-travel booking inquiries containing PII."
+    },
+    "/admins/{userId}": {
+      "schema": { "$ref": "#/entities/AdminUser" },
+      "description": "Verified administrator accounts."
+    },
+    "/tours/{tourId}": {
+      "schema": { "$ref": "#/entities/CmsTour" },
+      "description": "Public tour catalog editable by Admin."
+    },
+    "/destinations/{destinationId}": {
+      "schema": { "$ref": "#/entities/CmsDestination" },
+      "description": "Public destinations & map pins editable by Admin."
+    },
+    "/experiences/{experienceId}": {
+      "schema": { "$ref": "#/entities/CmsExperience" },
+      "description": "Public local experiences editable by Admin."
+    },
+    "/journal_articles/{articleId}": {
+      "schema": { "$ref": "#/entities/CmsJournalArticle" },
+      "description": "Public Nhật ký Mây blog articles editable by Admin."
+    },
+    "/site_settings/{settingId}": {
+      "schema": { "$ref": "#/entities/CmsSiteSettings" },
+      "description": "Public Hero and contact settings editable by Admin."
+    }
+  }
+}

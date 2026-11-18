@@ -1,0 +1,337 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net (Default-Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Shared Hardened Primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isPrimaryAdmin() {
+      return isVerifiedUser() && request.auth.token.email == 'vanquyen607@gmail.com';
+    }
+
+    function isAdmin() {
+      return isPrimaryAdmin() || (
+        isVerifiedUser() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // Validation Blueprint: BookingInquiry (Create)
+    function isValidBookingInquiryCreate(data) {
+      return data.keys().hasAll([
+          'fullName', 'phone', 'tourId', 'tourTitle', 'packageId',
+          'packageLabel', 'lang', 'status', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'fullName', 'phone', 'tourId', 'tourTitle', 'packageId',
+          'packageLabel', 'note', 'lang', 'status', 'userId', 'createdAt'
+        ])
+        && data.fullName is string && data.fullName.size() >= 2 && data.fullName.size() <= 120
+        && data.phone is string && data.phone.size() >= 9 && data.phone.size() <= 20
+        && data.phone.matches('^(0|\\+84)[0-9]{8,10}$')
+        && data.tourId is string && data.tourId.size() >= 1 && data.tourId.size() <= 80
+        && data.tourId.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.tourTitle is string && data.tourTitle.size() >= 1 && data.tourTitle.size() <= 200
+        && data.packageId is string && data.packageId.size() >= 1 && data.packageId.size() <= 80
+        && data.packageId.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.packageLabel is string && data.packageLabel.size() >= 1 && data.packageLabel.size() <= 120
+        && (!('note' in data) || (data.note is string && data.note.size() <= 1000))
+        && data.lang in ['vi', 'en']
+        && data.status == 'pending'
+        && data.createdAt == request.time
+        && (
+          !('userId' in data) || (
+            isVerifiedUser()
+            && data.userId is string
+            && isValidId(data.userId)
+            && data.userId == request.auth.uid
+          )
+        );
+    }
+
+    // Validation Blueprint: BookingInquiry (Update)
+    function isValidBookingInquiryUpdate(data) {
+      return data.keys().hasAll([
+          'fullName', 'phone', 'tourId', 'tourTitle', 'packageId',
+          'packageLabel', 'lang', 'status', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'fullName', 'phone', 'tourId', 'tourTitle', 'packageId',
+          'packageLabel', 'note', 'lang', 'status', 'userId', 'createdAt', 'updatedAt'
+        ])
+        && data.fullName is string && data.fullName.size() >= 2 && data.fullName.size() <= 120
+        && data.phone is string && data.phone.size() >= 9 && data.phone.size() <= 20
+        && data.phone.matches('^(0|\\+84)[0-9]{8,10}$')
+        && data.tourId is string && data.tourId.size() >= 1 && data.tourId.size() <= 80
+        && data.tourId.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.tourTitle is string && data.tourTitle.size() >= 1 && data.tourTitle.size() <= 200
+        && data.packageId is string && data.packageId.size() >= 1 && data.packageId.size() <= 80
+        && data.packageId.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.packageLabel is string && data.packageLabel.size() >= 1 && data.packageLabel.size() <= 120
+        && (!('note' in data) || (data.note is string && data.note.size() <= 1000))
+        && (!('userId' in data) || (data.userId is string && isValidId(data.userId)))
+        && data.lang in ['vi', 'en']
+        && data.status in ['pending', 'contacted', 'confirmed', 'archived']
+        && data.updatedAt == request.time;
+    }
+
+    // Validation Blueprint: AdminUser
+    function isValidAdminUser(data) {
+      return data.keys().hasAll(['email', 'role', 'createdAt'])
+        && data.keys().hasOnly(['email', 'role', 'createdAt'])
+        && data.email is string && data.email.size() >= 5 && data.email.size() <= 160
+        && data.role == 'admin'
+        && data.createdAt == request.time;
+    }
+
+    // Validation Blueprint: CmsTour
+    function isValidTour(data, isUpdate) {
+      return data.keys().hasAll([
+          'title', 'destination', 'zone', 'category', 'duration', 'price',
+          'rating', 'reviewCount', 'groupSize', 'departureInfo', 'description',
+          'highlights', 'packages', 'image', 'alt', 'isHidden', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'title', 'destination', 'zone', 'category', 'duration', 'price',
+          'rating', 'reviewCount', 'groupSize', 'departureInfo', 'description',
+          'highlights', 'packages', 'image', 'alt', 'isHidden', 'createdAt', 'updatedAt'
+        ])
+        && data.title is string && data.title.size() >= 2 && data.title.size() <= 200
+        && data.destination is string && data.destination.size() >= 2 && data.destination.size() <= 100
+        && data.zone in ['Miền Bắc', 'Miền Trung', 'Miền Nam']
+        && data.category in ['Biển đảo', 'Núi rừng', 'Văn hóa', 'Ẩm thực']
+        && data.duration in ['2 ngày 1 đêm', '3 ngày 2 đêm']
+        && data.price is number && data.price >= 0 && data.price <= 500000000
+        && data.rating is number && data.rating >= 1 && data.rating <= 5
+        && data.reviewCount is number && data.reviewCount >= 0 && data.reviewCount <= 1000000
+        && data.groupSize is string && data.groupSize.size() >= 1 && data.groupSize.size() <= 80
+        && data.departureInfo is string && data.departureInfo.size() >= 1 && data.departureInfo.size() <= 160
+        && data.description is string && data.description.size() >= 5 && data.description.size() <= 1500
+        && data.highlights is list && data.highlights.size() <= 12
+        && (data.highlights.size() == 0 || data.highlights[0] is string)
+        && data.packages is list && data.packages.size() >= 1 && data.packages.size() <= 5
+        && data.packages[0] is map
+        && data.image is string && data.image.size() >= 1 && data.image.size() <= 600
+        && data.alt is string && data.alt.size() >= 1 && data.alt.size() <= 300
+        && data.isHidden is bool
+        && (
+          (!isUpdate && data.createdAt == request.time && !('updatedAt' in data)) ||
+          (isUpdate && 'updatedAt' in data && data.updatedAt == request.time)
+        );
+    }
+
+    // Validation Blueprint: CmsDestination
+    function isValidDestination(data, isUpdate) {
+      return data.keys().hasAll([
+          'name', 'region', 'zone', 'tagline', 'bestSeason',
+          'coordinates', 'image', 'alt', 'tourCount', 'isHidden', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'name', 'region', 'zone', 'tagline', 'bestSeason',
+          'coordinates', 'image', 'alt', 'tourCount', 'isHidden', 'createdAt', 'updatedAt'
+        ])
+        && data.name is string && data.name.size() >= 2 && data.name.size() <= 100
+        && data.region is string && data.region.size() >= 2 && data.region.size() <= 120
+        && data.zone in ['Miền Bắc', 'Miền Trung', 'Miền Nam']
+        && data.tagline is string && data.tagline.size() >= 2 && data.tagline.size() <= 300
+        && data.bestSeason is string && data.bestSeason.size() >= 2 && data.bestSeason.size() <= 120
+        && data.coordinates is list && data.coordinates.size() == 2
+        && data.coordinates[0] is number && data.coordinates[1] is number
+        && data.image is string && data.image.size() >= 1 && data.image.size() <= 600
+        && data.alt is string && data.alt.size() >= 1 && data.alt.size() <= 300
+        && data.tourCount is number && data.tourCount >= 0 && data.tourCount <= 1000
+        && data.isHidden is bool
+        && (
+          (!isUpdate && data.createdAt == request.time && !('updatedAt' in data)) ||
+          (isUpdate && 'updatedAt' in data && data.updatedAt == request.time)
+        );
+    }
+
+    // Validation Blueprint: CmsExperience
+    function isValidExperience(data, isUpdate) {
+      return data.keys().hasAll([
+          'index', 'title', 'location', 'duration', 'description',
+          'image', 'alt', 'isHidden', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'index', 'title', 'location', 'duration', 'description',
+          'image', 'alt', 'isHidden', 'createdAt', 'updatedAt'
+        ])
+        && data.index is string && data.index.size() >= 1 && data.index.size() <= 16
+        && data.title is string && data.title.size() >= 2 && data.title.size() <= 180
+        && data.location is string && data.location.size() >= 2 && data.location.size() <= 120
+        && data.duration is string && data.duration.size() >= 1 && data.duration.size() <= 80
+        && data.description is string && data.description.size() >= 5 && data.description.size() <= 1200
+        && data.image is string && data.image.size() >= 1 && data.image.size() <= 600
+        && data.alt is string && data.alt.size() >= 1 && data.alt.size() <= 300
+        && data.isHidden is bool
+        && (
+          (!isUpdate && data.createdAt == request.time && !('updatedAt' in data)) ||
+          (isUpdate && 'updatedAt' in data && data.updatedAt == request.time)
+        );
+    }
+
+    // Validation Blueprint: CmsJournalArticle
+    function isValidJournalArticle(data, isUpdate) {
+      return data.keys().hasAll([
+          'category', 'destination', 'title', 'excerpt', 'authorName', 'authorRole',
+          'publishedDate', 'readTime', 'pullQuote', 'paragraphs', 'image', 'alt',
+          'isHidden', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'category', 'destination', 'title', 'excerpt', 'authorName', 'authorRole',
+          'publishedDate', 'readTime', 'pullQuote', 'paragraphs', 'image', 'alt',
+          'isHidden', 'createdAt', 'updatedAt'
+        ])
+        && data.category in ['Ký sự khách hàng', 'Văn hóa bản địa', 'Ẩm thực & Làng nghề']
+        && data.destination is string && data.destination.size() >= 2 && data.destination.size() <= 100
+        && data.title is string && data.title.size() >= 3 && data.title.size() <= 220
+        && data.excerpt is string && data.excerpt.size() >= 5 && data.excerpt.size() <= 600
+        && data.authorName is string && data.authorName.size() >= 2 && data.authorName.size() <= 120
+        && data.authorRole is string && data.authorRole.size() >= 2 && data.authorRole.size() <= 140
+        && data.publishedDate is string && data.publishedDate.size() >= 2 && data.publishedDate.size() <= 60
+        && data.readTime is string && data.readTime.size() >= 1 && data.readTime.size() <= 40
+        && data.pullQuote is string && data.pullQuote.size() >= 2 && data.pullQuote.size() <= 500
+        && data.paragraphs is list && data.paragraphs.size() >= 1 && data.paragraphs.size() <= 15
+        && data.paragraphs[0] is string
+        && data.image is string && data.image.size() >= 1 && data.image.size() <= 600
+        && data.alt is string && data.alt.size() >= 1 && data.alt.size() <= 300
+        && data.isHidden is bool
+        && (
+          (!isUpdate && data.createdAt == request.time && !('updatedAt' in data)) ||
+          (isUpdate && 'updatedAt' in data && data.updatedAt == request.time)
+        );
+    }
+
+    // Validation Blueprint: CmsSiteSettings
+    function isValidSiteSettings(data, isUpdate) {
+      return data.keys().hasAll([
+          'heroEyebrow', 'heroHeadline', 'heroSubtitle', 'heroCtaLabel', 'heroImage',
+          'brand', 'slogan', 'hotline', 'phone', 'email', 'address', 'hanoiOffice',
+          'workingHours', 'license', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'heroEyebrow', 'heroHeadline', 'heroSubtitle', 'heroCtaLabel', 'heroImage',
+          'heroVideoUrl', 'brand', 'slogan', 'hotline', 'phone', 'email', 'address',
+          'hanoiOffice', 'workingHours', 'license', 'createdAt', 'updatedAt'
+        ])
+        && data.heroEyebrow is string && data.heroEyebrow.size() >= 2 && data.heroEyebrow.size() <= 200
+        && data.heroHeadline is string && data.heroHeadline.size() >= 2 && data.heroHeadline.size() <= 160
+        && data.heroSubtitle is string && data.heroSubtitle.size() >= 5 && data.heroSubtitle.size() <= 600
+        && data.heroCtaLabel is string && data.heroCtaLabel.size() >= 1 && data.heroCtaLabel.size() <= 80
+        && data.heroImage is string && data.heroImage.size() >= 1 && data.heroImage.size() <= 600
+        && (!('heroVideoUrl' in data) || (data.heroVideoUrl is string && data.heroVideoUrl.size() <= 600))
+        && data.brand is string && data.brand.size() >= 2 && data.brand.size() <= 120
+        && data.slogan is string && data.slogan.size() >= 2 && data.slogan.size() <= 160
+        && data.hotline is string && data.hotline.size() >= 4 && data.hotline.size() <= 40
+        && data.phone is string && data.phone.size() >= 4 && data.phone.size() <= 40
+        && data.email is string && data.email.size() >= 5 && data.email.size() <= 160
+        && data.address is string && data.address.size() >= 4 && data.address.size() <= 300
+        && data.hanoiOffice is string && data.hanoiOffice.size() >= 4 && data.hanoiOffice.size() <= 300
+        && data.workingHours is string && data.workingHours.size() >= 2 && data.workingHours.size() <= 120
+        && data.license is string && data.license.size() >= 2 && data.license.size() <= 200
+        && (
+          (!isUpdate && data.createdAt == request.time && !('updatedAt' in data)) ||
+          (isUpdate && 'updatedAt' in data && data.updatedAt == request.time)
+        );
+    }
+
+    // Collection: /booking_inquiries/{inquiryId} (PII Protected)
+    match /booking_inquiries/{inquiryId} {
+      allow get: if isValidId(inquiryId) && (
+        isAdmin() ||
+        (isVerifiedUser() && 'userId' in existing() && existing().userId == request.auth.uid)
+      );
+
+      allow list: if isPrimaryAdmin() || (
+        isVerifiedUser() && 'userId' in resource.data && resource.data.userId == request.auth.uid
+      );
+
+      allow create: if isValidId(inquiryId) && isValidBookingInquiryCreate(incoming());
+
+      allow update: if isSignedIn()
+        && isValidId(inquiryId)
+        && isValidBookingInquiryUpdate(incoming())
+        && isAdmin()
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']);
+
+      allow delete: if isValidId(inquiryId) && isAdmin();
+    }
+
+    // Collection: /admins/{userId}
+    match /admins/{userId} {
+      allow get: if isValidId(userId) && (
+        isPrimaryAdmin() ||
+        (isVerifiedUser() && request.auth.uid == userId)
+      );
+      allow list: if isPrimaryAdmin();
+      allow create: if isValidId(userId) && isPrimaryAdmin() && isValidAdminUser(incoming());
+      allow update: if isValidId(userId)
+        && isPrimaryAdmin()
+        && isValidAdminUser(incoming())
+        && incoming().createdAt == existing().createdAt;
+      allow delete: if isValidId(userId) && isPrimaryAdmin();
+    }
+
+    // Public CMS Content Collections (Public Read, Strict Admin-Only CRUD)
+    match /tours/{tourId} {
+      allow get, list: if true;
+      allow create: if isSignedIn() && isValidId(tourId) && isValidTour(incoming(), false) && isAdmin();
+      allow update: if isSignedIn() && isValidId(tourId) && isValidTour(incoming(), true) && incoming().createdAt == existing().createdAt && isAdmin();
+      allow delete: if isSignedIn() && isValidId(tourId) && isAdmin();
+    }
+
+    match /destinations/{destinationId} {
+      allow get, list: if true;
+      allow create: if isSignedIn() && isValidId(destinationId) && isValidDestination(incoming(), false) && isAdmin();
+      allow update: if isSignedIn() && isValidId(destinationId) && isValidDestination(incoming(), true) && incoming().createdAt == existing().createdAt && isAdmin();
+      allow delete: if isSignedIn() && isValidId(destinationId) && isAdmin();
+    }
+
+    match /experiences/{experienceId} {
+      allow get, list: if true;
+      allow create: if isSignedIn() && isValidId(experienceId) && isValidExperience(incoming(), false) && isAdmin();
+      allow update: if isSignedIn() && isValidId(experienceId) && isValidExperience(incoming(), true) && incoming().createdAt == existing().createdAt && isAdmin();
+      allow delete: if isSignedIn() && isValidId(experienceId) && isAdmin();
+    }
+
+    match /journal_articles/{articleId} {
+      allow get, list: if true;
+      allow create: if isSignedIn() && isValidId(articleId) && isValidJournalArticle(incoming(), false) && isAdmin();
+      allow update: if isSignedIn() && isValidId(articleId) && isValidJournalArticle(incoming(), true) && incoming().createdAt == existing().createdAt && isAdmin();
+      allow delete: if isSignedIn() && isValidId(articleId) && isAdmin();
+    }
+
+    match /site_settings/{settingId} {
+      allow get, list: if true;
+      allow create: if isSignedIn() && isValidId(settingId) && isValidSiteSettings(incoming(), false) && isAdmin();
+      allow update: if isSignedIn() && isValidId(settingId) && isValidSiteSettings(incoming(), true) && incoming().createdAt == existing().createdAt && isAdmin();
+      allow delete: if isSignedIn() && isValidId(settingId) && isAdmin();
+    }
+  }
+}
