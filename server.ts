@@ -194,7 +194,7 @@ TRẢI NGHIỆM BẢN ĐỊA LẺ:
 ${expLines || '(Chưa có dữ liệu)'}`;
 }
 
-async function startServer() {
+function createApp() {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
 
@@ -448,6 +448,10 @@ async function startServer() {
     }
   });
 
+  return app;
+}
+
+async function startServer(app: ReturnType<typeof createApp>) {
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
@@ -468,4 +472,12 @@ async function startServer() {
   });
 }
 
-void startServer();
+const app = createApp();
+export default app;
+
+// Run a listening server only when executed directly (local dev / AI
+// Studio). On Vercel this module is imported as a serverless function and
+// the default-exported app handles requests instead.
+if (!process.env.VERCEL) {
+  void startServer(app);
+}
