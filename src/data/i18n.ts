@@ -608,7 +608,7 @@ export const UI_COPY = {
 
 export const EN_CONTENT = {
   hero: {
-    eyebrow: 'Vietnam Slow-Travel Journal · 17 Regions & Intimate Groups up to 10 Guests',
+    eyebrow: 'Vietnam Slow-Travel Journal · 29 Regions & Intimate Groups up to 10 Guests',
     headline: 'Travel slow, live deeply.',
     subtitle:
       'We never chase crowded checklists. Each Mây Lang Thang journey is an unhurried window into misty emerald bays, northern cloud passes, mossy imperial citadels, and Mekong river kitchens.',

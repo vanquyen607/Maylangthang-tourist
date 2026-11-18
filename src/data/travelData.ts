@@ -127,7 +127,7 @@ export interface JournalArticle {
  * Khi để trống, Hero tự chạy thước phim nền chuyển động mượt từ bộ ảnh `videoSlides`.
  * ========================================================================= */
 export const HERO_DATA = {
-  eyebrow: 'Tạp chí hành trình Việt Nam · 17 vùng đất & nhóm nhỏ tối đa 10 khách',
+  eyebrow: 'Tạp chí hành trình Việt Nam · 29 vùng đất & nhóm nhỏ tối đa 10 khách',
   headline: 'Đi chậm, sống nhiều.',
   subtitle:
     'Chúng tôi không chạy theo danh sách điểm check-in. Mỗi chuyến đi của Mây Lang Thang là một lát cắt dịu dàng qua vịnh biển sớm sương, đèo mây phía Bắc, cố đô rêu phong và miệt vườn sông nước.',
@@ -195,7 +195,7 @@ export const STATS: StatItem[] = [
 /* =========================================================================
  * 3. ĐIỂM ĐẾN NỔI BẬT (10 địa điểm đa dạng Bắc - Trung - Nam)
  * ========================================================================= */
-export const REGION_ZONES: RegionZone[] = ['Tất cả', 'Miền Bắc', 'Miền Trung', 'Miền Nam'];
+export const REGION_ZONES: RegionZone[] = ['Tất cả', 'Miền Bắc', 'Miền Trung', 'Miền Nam', 'Quốc tế'];
 
 export const DESTINATIONS: DestinationItem[] = [
   {
@@ -606,6 +606,12 @@ export const DURATION_FILTERS: DurationFilter[] = [
   'Tất cả',
   '2 ngày 1 đêm',
   '3 ngày 2 đêm',
+  '4 ngày 3 đêm',
+  '5 ngày 4 đêm',
+  '6 ngày 5 đêm',
+  '7 ngày 6 đêm',
+  '9 ngày 8 đêm',
+  '10 ngày 9 đêm',
 ];
 
 export const TOURS: TourItem[] = [
