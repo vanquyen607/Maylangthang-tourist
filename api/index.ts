@@ -171,22 +171,95 @@ const SCORE_STOPWORDS = new Set([
   'look', 'trip', 'trips', 'travel', 'journey', 'journeys',
 ]);
 
-function scoreTours(tours: CatalogTourSummary[], text: string): CatalogTourSummary[] {
+// Country aliases (normalized) → canonical country key, which is the
+// normalized part of a destination's region before "·" (e.g. region
+// "Nhật Bản · Kansai" → "nhat ban"). A query naming a country — Vietnamese
+// or English — resolves to that country's tours even when the destination
+// itself is a city (Kyoto, Seoul, Paris…). Bare "nhat" is deliberately NOT
+// an alias: it also appears in "ho nhat nguyet" (the Taiwan tour).
+const COUNTRY_ALIASES: Record<string, string> = {
+  'nhat ban': 'nhat ban', japan: 'nhat ban',
+  'han quoc': 'han quoc', korea: 'han quoc',
+  'trung quoc': 'trung quoc', china: 'trung quoc',
+  'thai lan': 'thai lan', thailand: 'thai lan',
+  campuchia: 'campuchia', cambodia: 'campuchia',
+  indonesia: 'indonesia',
+  'mong co': 'mong co', mongolia: 'mong co',
+  phap: 'phap', france: 'phap', 'chau au': 'phap', europe: 'phap',
+  nepal: 'nepal',
+  bhutan: 'bhutan',
+  singapore: 'singapore',
+  'dai loan': 'dai loan', taiwan: 'dai loan',
+};
+
+function countryOfDestination(d: CatalogDestinationSummary): string {
+  return norm((d.region || '').split('·')[0].trim());
+}
+
+function aliasInText(t: string, alias: string): boolean {
+  const esc = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ /g, '\\s+');
+  return new RegExp(`(^|[^a-z0-9])${esc}([^a-z0-9]|$)`).test(t);
+}
+
+/** Canonical country named in the text (alias or exact region country). */
+function detectCountry(
+  text: string,
+  destinations: CatalogDestinationSummary[]
+): string | null {
   const t = norm(text);
+  let best: string | null = null;
+  let bestLen = 0;
+  const consider = (alias: string, canonical: string) => {
+    if (alias.length >= 3 && alias.length > bestLen && aliasInText(t, alias)) {
+      best = canonical;
+      bestLen = alias.length;
+    }
+  };
+  for (const [alias, canonical] of Object.entries(COUNTRY_ALIASES)) consider(alias, canonical);
+  for (const d of destinations) {
+    const c = countryOfDestination(d);
+    if (c) consider(c, c);
+  }
+  return best;
+}
+
+function scoreTours(
+  tours: CatalogTourSummary[],
+  text: string,
+  countryByDest?: Map<string, string>
+): CatalogTourSummary[] {
+  const t = norm(text);
+  const canonical = detectCountry(text, []);
   const words = t.split(' ').filter((w) => w.length >= 4 && !SCORE_STOPWORDS.has(w));
+  // Consecutive word pairs from the query, e.g. "nhat ban". A phrase hit is
+  // strong evidence: "nhat" alone also matches "ho nhat nguyet" (Taiwan),
+  // but only the Japan tour contains the phrase "nhat ban".
+  const tokens = t.split(' ').filter(Boolean);
+  const phrases: string[] = [];
+  for (let i = 0; i + 1 < tokens.length; i++) phrases.push(`${tokens[i]} ${tokens[i + 1]}`);
   const scored = tours.map((tour) => {
     const hay = tourHaystack(tour);
     let score = 0;
     if (t.includes(norm(tour.destination))) score += 6;
+    // Query names a country → that country's tours score as strongly as a
+    // named destination (e.g. "tour pháp" finds Paris, whose destination
+    // field is the city, not the country).
+    if (canonical && countryByDest && countryByDest.get(norm(tour.destination)) === canonical) score += 6;
     if (tour.zone && t.includes(norm(tour.zone))) score += 2;
     if (tour.category && t.includes(norm(tour.category))) score += 2;
+    if (phrases.some((p) => hay.includes(p))) score += 6;
     for (const w of words) if (hay.includes(w)) score += 1;
     return { tour, score };
   });
-  return scored
+  const ranked = scored
     .filter((s) => s.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .map((s) => s.tour);
+    .sort((a, b) => b.score - a.score);
+  // When a tour matched strongly (destination / phrase, score >= 6), drop
+  // tours that only picked up a single stray word (score <= 1) — e.g. the
+  // Taiwan tour scoring 1 from "nhat" in "ho nhat nguyet" on a Japan query.
+  const best = ranked.length > 0 ? ranked[0].score : 0;
+  const kept = best >= 6 ? ranked.filter((s) => s.score > 1) : ranked;
+  return kept.map((s) => s.tour);
 }
 
 /** Strong, unambiguous tour reference: full title or destination named. */
@@ -209,10 +282,21 @@ function matchDestination(
   text: string
 ): CatalogDestinationSummary | null {
   const t = norm(text);
+  // A named country resolves straight to that country's destination
+  // (e.g. "Nhật Bản" → Kyoto, "châu Âu" → Paris).
+  const canonical = detectCountry(text, destinations);
+  if (canonical) {
+    const byCountry = destinations.find((d) => countryOfDestination(d) === canonical);
+    if (byCountry) return byCountry;
+  }
   let best: CatalogDestinationSummary | null = null;
   let bestLen = 0;
   for (const d of destinations) {
-    for (const cand of [d.name, d.region]) {
+    // Region is "Country · Area" (e.g. "Nhật Bản · Kansai"): the part before
+    // "·" is the country, so a query naming the country matches the city
+    // destination (Kyoto) even though the tour's destination is the city.
+    const country = (d.region || '').split('·')[0].trim();
+    for (const cand of [d.name, d.region, country]) {
       const n = norm(cand || '');
       if (n.length >= 3 && t.includes(n) && n.length > bestLen) {
         best = d;
@@ -556,8 +640,40 @@ function handleChat(history: ChatHistoryItem[], lang: Lang, catalog: CatalogPayl
 
   // ---------- tour search / detail ----------
   const filters = parseFilters(lastUser);
+
+  // "Tour quốc tế / nước ngoài" with no specific country named → list the
+  // international tours (cheapest first) and name the countries on offer.
+  const countryByDest = new Map(
+    destinations.map((d) => [norm(d.name), countryOfDestination(d)] as const)
+  );
+  const intlIntent = /(quoc te|nuoc ngoai|international|abroad|overseas)/.test(t);
+  if (intlIntent && !dest && !detectCountry(lastUser, destinations)) {
+    const intlPool = applyFilters(
+      tours.filter((x) => norm(x.zone) === 'quoc te'),
+      filters
+    );
+    if (intlPool.length > 0) {
+      const sorted = [...intlPool].sort((a, b) => a.price - b.price);
+      const countryNames = [
+        ...new Set(
+          destinations
+            .filter((d) => norm(d.zone) === 'quoc te')
+            .map((d) => (d.region || '').split('·')[0].trim())
+            .filter(Boolean)
+        ),
+      ];
+      const intro = lang === 'en'
+        ? `We currently run **${intlPool.length} international tours**. Here are the best-priced ones:`
+        : `Mây Lang Thang đang có **${intlPool.length} tour quốc tế** — gửi bạn vài tour giá tốt nhất trước:`;
+      const outro = lang === 'en'
+        ? `Countries on offer: ${countryNames.join(', ')}. Tell me a country (or a budget) and I'll narrow it down for you.`
+        : `Các nước đang có tour: ${countryNames.join(', ')}. Bạn muốn đi nước nào, hoặc tầm giá bao nhiêu, nhắn mình lọc tiếp nhé.`;
+      return listReply(lang, intro, sorted, outro);
+    }
+  }
+
   const pool = applyFilters(tours, filters);
-  const matched = scoreTours(pool, lastUser);
+  const matched = scoreTours(pool, lastUser, countryByDest);
   const hasFilter = filters.maxPrice !== undefined || filters.minPrice !== undefined || filters.days !== undefined;
 
   if (matched.length > 0) {
