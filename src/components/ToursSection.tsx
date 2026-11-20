@@ -202,7 +202,7 @@ export function ToursSection({
 
       {/* Thanh chọn nhanh điểm đến & thời lượng ngay phía trên danh sách tour */}
       <RevealBlock delay={0.12} className="mb-8 flex flex-wrap items-center justify-between gap-4">
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 min-w-0 max-w-full">
           <span className="inline-flex items-center gap-1.5 text-xs font-medium text-[#0B2A33]/65 dark:text-[#EDF4F3]/65 mr-1">
             <SlidersHorizontal className="w-3.5 h-3.5" />
             <span>{t.tours.quickOptions}</span>
@@ -231,7 +231,7 @@ export function ToursSection({
           <div
             role="group"
             aria-label={t.search.duration}
-            className="inline-flex items-center gap-1 p-1 rounded-lg bg-white dark:bg-[#0D313B] border border-[#0B2A33]/12 dark:border-white/12"
+            className="inline-flex flex-nowrap items-center gap-1 p-1 rounded-lg bg-white dark:bg-[#0D313B] border border-[#0B2A33]/12 dark:border-white/12 max-w-full overflow-x-auto no-scrollbar"
           >
             {DURATION_FILTERS.map((dur) => {
               const active = filters.duration === dur;
@@ -240,7 +240,7 @@ export function ToursSection({
                   key={dur}
                   type="button"
                   onClick={() => onDurationChange(dur)}
-                  className={`px-2.5 py-1 text-xs font-medium rounded-md whitespace-nowrap transition-colors ${
+                  className={`px-2.5 py-1 text-xs font-medium rounded-md whitespace-nowrap shrink-0 transition-colors ${
                     active
                       ? 'bg-[#1F8A70] text-white dark:bg-[#F2B84B] dark:text-[#06181E]'
                       : 'text-[#0B2A33]/70 dark:text-[#EDF4F3]/70 hover:text-[#0B2A33] dark:hover:text-white'
